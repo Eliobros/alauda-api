@@ -1,0 +1,28 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Env
+.env
+.env.local
+
+# Logs
+logs/*.log
+
+# Database
+database/*.json
+
+# Python
+services/youtube/__pycache__/
+services/youtube/*.pyc
+services/youtube/venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
