@@ -16,11 +16,13 @@ const constants = require('./config/constants');
 const logger = require('./middleware/logger');
 
 // Importa rotas
+const spotifyRoutes = require('./routes/spotify');
 const tiktokRoutes = require('./routes/tiktok');
 //const twitterRoutes = require('./routes/twitter');
-//const youtubeRoutes = require('./routes/youtube');
+const youtubeRoutes = require('./routes/youtube');
 const instagramRoutes = require('./routes/instagram');
 const whatsappRoutes = require('./routes/whatsapp');
+const shazamRoutes = require('./routes/shazam');
 //const paymentRoutes = require('./routes/payment');
 //const dashboardRoutes = require('./routes/dashboard');
 const facebookRoutes = require('./routes/facebook');
@@ -79,12 +81,14 @@ app.get('/health', (req, res) => {
 // Todas as rotas precisam de autenticação (implementado dentro de cada rota)
 app.use('/api/tiktok', tiktokRoutes);
 //app.use('/api/twitter', twitterRoutes);
-//app.use('/api/youtube', youtubeRoutes);
+app.use('/api/youtube', youtubeRoutes);
 app.use('/api/instagram', instagramRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 //app.use('/api/payment', paymentRoutes);
 //app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/spotify', spotifyRoutes);
 app.use('/api/facebook', facebookRoutes);
+app.use('/api/shazam', shazamRoutes);
 // ===== ROTA 404 =====
 /*
 app.all('*', (req, res) => {

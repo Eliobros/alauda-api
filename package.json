@@ -11,15 +11,21 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
     "cheerio": "^1.1.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "form-data": "^4.0.4",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.19.2"
+    "mongoose": "^8.19.2",
+    "multer": "^2.0.2",
+    "spdl-core": "^2.0.2",
+    "spotify-web-api-node": "^5.0.2",
+    "spotifydl-core": "^0.2.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
