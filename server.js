@@ -16,7 +16,11 @@ const constants = require('./config/constants');
 const logger = require('./middleware/logger');
 
 // Importa rotas
+const authRoutes = require('./routes/auth');
+const keysRoutes = require('./routes/keys');
+const cpfRoutes = require('./routes/cpf');
 const spotifyRoutes = require('./routes/spotify');
+const removeRoutes = require('./routes/remove');
 const tiktokRoutes = require('./routes/tiktok');
 //const twitterRoutes = require('./routes/twitter');
 const youtubeRoutes = require('./routes/youtube');
@@ -87,6 +91,10 @@ app.use('/api/whatsapp', whatsappRoutes);
 //app.use('/api/payment', paymentRoutes);
 //app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/spotify', spotifyRoutes);
+app.use('/api/remove', removeRoutes);
+app.use('/api/cpf', cpfRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/keys', keysRoutes);
 app.use('/api/facebook', facebookRoutes);
 app.use('/api/shazam', shazamRoutes);
 // ===== ROTA 404 =====
