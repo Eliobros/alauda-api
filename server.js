@@ -16,6 +16,7 @@ const constants = require('./config/constants');
 const logger = require('./middleware/logger');
 
 // Importa rotas
+const lyricsRoutes = require('./routes/lyrics');
 const authRoutes = require('./routes/auth');
 const keysRoutes = require('./routes/keys');
 const cpfRoutes = require('./routes/cpf');
@@ -30,6 +31,7 @@ const shazamRoutes = require('./routes/shazam');
 //const paymentRoutes = require('./routes/payment');
 //const dashboardRoutes = require('./routes/dashboard');
 const facebookRoutes = require('./routes/facebook');
+
 // Inicializa Express
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,6 +47,7 @@ app.use(logger); // Log de todas as requests
 mongoose.connect(process.env.MONGODB_URI || dbConfig.uri, dbConfig.options)
     .then(() => {
         console.log('✅ MongoDB conectado com sucesso!');
+        console.log(`📊 Database: ${process.env.MONGODB_URI.includes('atlas') ? 'MongoDB Atlas ☁️' : 'MongoDB Local 💻'}`);
     })
     .catch((error) => {
         console.error('❌ Erro ao conectar no MongoDB:', error.message);
@@ -59,13 +62,15 @@ app.get('/', (req, res) => {
         version: '1.0.0',
         author: 'Zëüs Lykraios 💎',
         endpoints: {
+            lyrics: '/api/lyrics',
             tiktok: '/api/tiktok',
             twitter: '/api/twitter',
             youtube: '/api/youtube',
             instagram: '/api/instagram',
             whatsapp: '/api/whatsapp',
-            payment: '/api/payment',
-            dashboard: '/api/dashboard'
+            spotify: '/api/spotify',
+            shazam: '/api/shazam',
+            facebook: '/api/facebook'
         },
         docs: 'https://docs.alauda.api/v1'
     });
@@ -81,36 +86,50 @@ app.get('/health', (req, res) => {
     });
 });
 
+// ===== FUNÇÃO PARA REGISTRAR ROTAS COM LOG =====
+const loadedRoutes = [];
+
+function registerRoute(path, router, name) {
+    app.use(path, router);
+    loadedRoutes.push({ path, name });
+    console.log(`✅ Rota carregada: ${path.padEnd(25)} | ${name}`);
+}
+
+console.log('\n🚀 ===== CARREGANDO ROTAS ===== 🚀\n');
+
 // ===== ROTAS DA API =====
-// Todas as rotas precisam de autenticação (implementado dentro de cada rota)
-app.use('/api/tiktok', tiktokRoutes);
-//app.use('/api/twitter', twitterRoutes);
-app.use('/api/youtube', youtubeRoutes);
-app.use('/api/instagram', instagramRoutes);
-app.use('/api/whatsapp', whatsappRoutes);
-//app.use('/api/payment', paymentRoutes);
-//app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/spotify', spotifyRoutes);
-app.use('/api/remove', removeRoutes);
-app.use('/api/cpf', cpfRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/keys', keysRoutes);
-app.use('/api/facebook', facebookRoutes);
-app.use('/api/shazam', shazamRoutes);
+registerRoute('/api/auth', authRoutes, 'Autenticação');
+registerRoute('/api/keys', keysRoutes, 'Gerenciamento de API Keys');
+registerRoute('/api/cpf', cpfRoutes, 'Validação CPF');
+registerRoute('/api/spotify', spotifyRoutes, 'Spotify Downloader');
+registerRoute('/api/remove', removeRoutes, 'Background Remover');
+registerRoute('/api/lyrics', lyricsRoutes, 'Lyrics Search');
+registerRoute('/api/tiktok', tiktokRoutes, 'TikTok Downloader');
+//registerRoute('/api/twitter', twitterRoutes, 'Twitter Downloader');
+registerRoute('/api/youtube', youtubeRoutes, 'YouTube Downloader');
+registerRoute('/api/instagram', instagramRoutes, 'Instagram Downloader');
+registerRoute('/api/whatsapp', whatsappRoutes, 'WhatsApp Utils');
+registerRoute('/api/shazam', shazamRoutes, 'Shazam Music Identifier');
+//registerRoute('/api/payment', paymentRoutes, 'Payment System');
+//registerRoute('/api/dashboard', dashboardRoutes, 'Dashboard');
+registerRoute('/api/facebook', facebookRoutes, 'Facebook Downloader');
+
+console.log(`\n✅ Total: ${loadedRoutes.length} rotas carregadas com sucesso!\n`);
+
 // ===== ROTA 404 =====
-/*
-app.all('*', (req, res) => {
+app.use((req, res) => {
     res.status(404).json({
         success: false,
         error: 'Endpoint não encontrado',
-        message: 'Verifique a documentação em https://docs.alauda.api/v1'
+        message: `${req.method} ${req.path} não existe`,
+        availableEndpoints: loadedRoutes.map(r => r.path)
     });
 });
-*/
+
 // ===== ERROR HANDLER GLOBAL =====
 app.use((error, req, res, next) => {
     console.error('❌ Erro:', error);
-    
+
     res.status(error.status || 500).json({
         success: false,
         error: error.message || 'Erro interno do servidor',
@@ -128,17 +147,10 @@ app.listen(PORT, () => {
     console.log(`   👑 Desenvolvido por: Zëüs Lykraios 💎`);
     console.log(`   🌍 Localização: Maputo, Moçambique`);
     console.log('');
-    console.log(`   📡 Servidor rodando na porta: ${PORT}`);
-    console.log(`   🔗 URL: http://localhost:${PORT}`);
+    console.log(`   📡 Servidor: http://localhost:${PORT}`);
+    console.log(`   🌐 IP Público: http://208.110.72.191:${PORT}`);
     console.log(`   📊 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-    console.log('');
-    console.log('   📋 Cases disponíveis:');
-    console.log('      • TikTok Downloader');
-    console.log('      • Twitter Downloader');
-    console.log('      • YouTube Downloader (Python)');
-    console.log('      • Instagram Downloader');
-    console.log('      • WhatsApp Status Mention Detector');
-    console.log('      • M-Pesa/E-Mola Validator');
+    console.log(`   ⏰ Iniciado: ${new Date().toLocaleString('pt-BR', { timeZone: 'Africa/Maputo' })}`);
     console.log('');
     console.log('⚡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━⚡');
     console.log('');

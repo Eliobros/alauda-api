@@ -67,6 +67,7 @@ module.exports = {
         TIKTOK_DOWNLOAD: 30,       // 1 crédito
         TWITTER_DOWNLOAD: 50,      // 1 crédito
 	SPOTIFY_SEARCH: 10,      // 🆕 ADICIONAR
+	LYRICS_SEARCH: 50, // Adiciona isso
     SPOTIFY_DOWNLOAD: 50,
 	REMOVE_BG: 10,
         YOUTUBE_INFO: 10,          // 1 crédito
