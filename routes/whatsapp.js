@@ -16,8 +16,8 @@ router.get('/info', (req, res) => {
         endpoint: '/api/whatsapp',
         description: 'Integração do Mega-Bot com Alauda API',
         features: [
-            'Ativação de números com API Key',
-            'Validação de créditos',
+            'Ativação de grupos com API Key',
+            'Validação de créditos por grupo',
             'Consumo de créditos por operação',
             'Sistema de cache para performance'
         ],
@@ -27,48 +27,48 @@ router.get('/info', (req, res) => {
                 method: 'POST',
                 endpoint: '/api/whatsapp/activate',
                 body: {
-                    phone: '258123456789',
+                    group_id: '120363xxxxx@g.us',
                     api_key: 'alauda_live_xyz',
-                    group_id: '120363xxxxx@g.us (opcional)',
-                    group_name: 'Nome do Grupo (opcional)'
+                    group_name: 'Nome do Grupo (opcional)',
+                    bot_number: '258123456789 (opcional)'
                 }
             },
             validate: {
                 method: 'POST',
                 endpoint: '/api/whatsapp/validate',
                 body: {
-                    phone: '258123456789'
+                    group_id: '120363xxxxx@g.us'
                 }
             },
             consume: {
                 method: 'POST',
                 endpoint: '/api/whatsapp/consume',
                 body: {
-                    phone: '258123456789'
+                    group_id: '120363xxxxx@g.us'
                 }
             }
         }
     });
 });
 
-// ===== ATIVAR NÚMERO =====
+// ===== ATIVAR GRUPO =====
 router.post('/activate', response.asyncHandler(async (req, res) => {
     try {
-        const { phone, api_key, group_id, group_name } = req.body;
+        const { group_id, api_key, group_name, bot_number } = req.body;
 
         // Validações
-        if (!phone || !api_key) {
+        if (!group_id || !api_key) {
             return response.validationError(res, [
-                { field: 'phone', message: 'Número de telefone é obrigatório' },
+                { field: 'group_id', message: 'ID do grupo é obrigatório' },
                 { field: 'api_key', message: 'API Key é obrigatória' }
             ]);
         }
 
-        // Valida formato do telefone
-        if (!/^258\d{9}$/.test(phone)) {
+        // Valida formato do group_id
+        if (!/^120363\d+@g\.us$/.test(group_id)) {
             return response.validationError(res, [{
-                field: 'phone',
-                message: 'Telefone inválido. Use formato: 258XXXXXXXXX'
+                field: 'group_id',
+                message: 'Group ID inválido. Use formato: 120363xxxxx@g.us'
             }]);
         }
 
@@ -87,20 +87,21 @@ router.post('/activate', response.asyncHandler(async (req, res) => {
             return response.insufficientCredits(res, WHATSAPP_COST, apiKeyData.credits);
         }
 
-        // Verifica se já está ativado
-        let activation = await WhatsappActivation.findByPhone(phone);
+        // Verifica se grupo já está ativado
+        let activation = await WhatsappActivation.findByGroupId(group_id);
 
         if (activation) {
             // Já ativado - atualiza API Key se for diferente
             if (activation.apiKey !== api_key) {
                 activation.apiKey = api_key;
-                activation.groupId = group_id || activation.groupId;
                 activation.groupName = group_name || activation.groupName;
+                activation.botNumber = bot_number || activation.botNumber;
                 await activation.save();
 
                 return response.success(res, {
-                    message: 'Número atualizado com nova API Key',
-                    phone: activation.phone,
+                    message: '✅ Grupo atualizado com nova API Key',
+                    group_id: activation.groupId,
+                    group_name: activation.groupName,
                     api_key: api_key,
                     credits_available: apiKeyData.credits,
                     activated_at: activation.activatedAt
@@ -108,8 +109,9 @@ router.post('/activate', response.asyncHandler(async (req, res) => {
             }
 
             return response.success(res, {
-                message: 'Número já está ativado',
-                phone: activation.phone,
+                message: '✅ Grupo já está ativado',
+                group_id: activation.groupId,
+                group_name: activation.groupName,
                 credits_available: apiKeyData.credits,
                 activated_at: activation.activatedAt
             });
@@ -117,18 +119,19 @@ router.post('/activate', response.asyncHandler(async (req, res) => {
 
         // Cria nova ativação
         activation = new WhatsappActivation({
-            phone,
-            apiKey: api_key,
             groupId: group_id,
             groupName: group_name,
+            botNumber: bot_number,
+            apiKey: api_key,
             isActive: true
         });
 
         await activation.save();
 
         return response.created(res, {
-            message: 'Número ativado com sucesso!',
-            phone: activation.phone,
+            message: '✅ Grupo ativado com sucesso!',
+            group_id: activation.groupId,
+            group_name: activation.groupName,
             api_key: api_key,
             credits_available: apiKeyData.credits,
             activated_at: activation.activatedAt,
@@ -141,23 +144,26 @@ router.post('/activate', response.asyncHandler(async (req, res) => {
     }
 }));
 
-// ===== VALIDAR NÚMERO E CRÉDITOS =====
+// ===== VALIDAR GRUPO E CRÉDITOS =====
 router.post('/validate', response.asyncHandler(async (req, res) => {
     try {
-        const { phone } = req.body;
+        const { group_id } = req.body;
 
-        if (!phone) {
+        if (!group_id) {
             return response.validationError(res, [{
-                field: 'phone',
-                message: 'Número de telefone é obrigatório'
+                field: 'group_id',
+                message: 'ID do grupo é obrigatório'
             }]);
         }
 
         // Busca ativação
-        const activation = await WhatsappActivation.findByPhone(phone);
+        const activation = await WhatsappActivation.findByGroupId(group_id);
 
         if (!activation) {
-            return response.error(res, 'Número não ativado. Use !ativar <sua_chave> para ativar.', 404);
+            return response.error(res, 
+                '❌ *Grupo não ativado*\n\nUse *!ativar <sua_chave>* para ativar o bot neste grupo.', 
+                404
+            );
         }
 
         // Busca API Key vinculada
@@ -172,15 +178,16 @@ router.post('/validate', response.asyncHandler(async (req, res) => {
         }
 
         if (!apiKeyData.hasCredits(WHATSAPP_COST)) {
-            return response.error(res, 
-                `⚠️ *CRÉDITOS INSUFICIENTES*\n\nVocê precisa de ${WHATSAPP_COST} créditos para usar o bot.\nCréditos disponíveis: ${apiKeyData.credits}\n\n💰 Recarregue sua conta para continuar usando!`, 
+            return response.error(res,
+                `⚠️ *CRÉDITOS INSUFICIENTES*\n\nVocê precisa de ${WHATSAPP_COST} créditos para usar o bot.\nCréditos disponíveis: ${apiKeyData.credits}\n\n💰 Recarregue sua conta para continuar usando!`,
                 402
             );
         }
 
         return response.success(res, {
             valid: true,
-            phone: activation.phone,
+            group_id: activation.groupId,
+            group_name: activation.groupName,
             api_key: activation.apiKey,
             credits_available: apiKeyData.credits,
             cost_per_operation: WHATSAPP_COST,
@@ -196,20 +203,20 @@ router.post('/validate', response.asyncHandler(async (req, res) => {
 // ===== CONSUMIR CRÉDITOS =====
 router.post('/consume', response.asyncHandler(async (req, res) => {
     try {
-        const { phone } = req.body;
+        const { group_id } = req.body;
 
-        if (!phone) {
+        if (!group_id) {
             return response.validationError(res, [{
-                field: 'phone',
-                message: 'Número de telefone é obrigatório'
+                field: 'group_id',
+                message: 'ID do grupo é obrigatório'
             }]);
         }
 
         // Busca ativação
-        const activation = await WhatsappActivation.findByPhone(phone);
+        const activation = await WhatsappActivation.findByGroupId(group_id);
 
         if (!activation) {
-            return response.error(res, 'Número não ativado', 404);
+            return response.error(res, 'Grupo não ativado', 404);
         }
 
         // Busca API Key
@@ -232,6 +239,7 @@ router.post('/consume', response.asyncHandler(async (req, res) => {
         return response.success(res, {
             success: true,
             message: 'Créditos consumidos com sucesso',
+            group_id: activation.groupId,
             credits_consumed: WHATSAPP_COST,
             credits_remaining: apiKeyData.credits,
             total_messages: activation.totalMessages,
@@ -244,33 +252,33 @@ router.post('/consume', response.asyncHandler(async (req, res) => {
     }
 }));
 
-// ===== DESATIVAR NÚMERO =====
+// ===== DESATIVAR GRUPO =====
 router.post('/deactivate', response.asyncHandler(async (req, res) => {
     try {
-        const { phone, api_key } = req.body;
+        const { group_id, api_key } = req.body;
 
-        if (!phone || !api_key) {
+        if (!group_id || !api_key) {
             return response.validationError(res, [
-                { field: 'phone', message: 'Número é obrigatório' },
+                { field: 'group_id', message: 'ID do grupo é obrigatório' },
                 { field: 'api_key', message: 'API Key é obrigatória' }
             ]);
         }
 
-        const activation = await WhatsappActivation.findByPhone(phone);
+        const activation = await WhatsappActivation.findByGroupId(group_id);
 
         if (!activation) {
-            return response.error(res, 'Número não encontrado', 404);
+            return response.error(res, 'Grupo não encontrado', 404);
         }
 
         if (activation.apiKey !== api_key) {
-            return response.error(res, 'API Key não corresponde ao número', 403);
+            return response.error(res, 'API Key não corresponde ao grupo', 403);
         }
 
         await activation.deactivate();
 
         return response.success(res, {
-            message: 'Número desativado com sucesso',
-            phone: activation.phone,
+            message: 'Grupo desativado com sucesso',
+            group_id: activation.groupId,
             deactivated_at: activation.deactivatedAt
         });
 
@@ -281,20 +289,21 @@ router.post('/deactivate', response.asyncHandler(async (req, res) => {
 }));
 
 // ===== CONSULTAR STATUS =====
-router.get('/status/:phone', response.asyncHandler(async (req, res) => {
+router.get('/status/:group_id', response.asyncHandler(async (req, res) => {
     try {
-        const { phone } = req.params;
+        const { group_id } = req.params;
 
-        const activation = await WhatsappActivation.findByPhone(phone);
+        const activation = await WhatsappActivation.findByGroupId(group_id);
 
         if (!activation) {
-            return response.error(res, 'Número não ativado', 404);
+            return response.error(res, 'Grupo não ativado', 404);
         }
 
         const apiKeyData = await ApiKey.findByKey(activation.apiKey);
 
         return response.success(res, {
-            phone: activation.phone,
+            group_id: activation.groupId,
+            group_name: activation.groupName,
             is_active: activation.isActive,
             credits_available: apiKeyData ? apiKeyData.credits : 0,
             total_messages: activation.totalMessages,

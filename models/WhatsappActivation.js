@@ -4,13 +4,19 @@
 const mongoose = require('mongoose');
 
 const whatsappActivationSchema = new mongoose.Schema({
-    // ===== IDENTIFICAÇÃO =====
-    phone: {
+    // ===== IDENTIFICAÇÃO PRINCIPAL =====
+    groupId: {
         type: String,
         required: true,
         unique: true,
         trim: true,
-        match: [/^258\d{9}$/, 'Telefone inválido (formato: 258XXXXXXXXX)']
+        match: [/^120363\d+@g\.us$/, 'Group ID inválido (formato: 120363xxxxx@g.us)']
+    },
+
+    groupName: {
+        type: String,
+        default: null,
+        trim: true
     },
 
     // ===== VINCULAÇÃO COM API KEY =====
@@ -20,16 +26,12 @@ const whatsappActivationSchema = new mongoose.Schema({
         trim: true
     },
 
-    // ===== INFORMAÇÕES DO GRUPO (OPCIONAL) =====
-    groupId: {
+    // ===== INFORMAÇÕES ADICIONAIS (OPCIONAL) =====
+    botNumber: {
         type: String,
         default: null,
-        trim: true
-    },
-    groupName: {
-        type: String,
-        default: null,
-        trim: true
+        trim: true,
+        match: [/^258\d{9}$/, 'Telefone inválido (formato: 258XXXXXXXXX)']
     },
 
     // ===== STATUS =====
@@ -77,9 +79,10 @@ const whatsappActivationSchema = new mongoose.Schema({
 });
 
 // ===== INDEXES =====
-whatsappActivationSchema.index({ phone: 1 });
+whatsappActivationSchema.index({ groupId: 1 });
 whatsappActivationSchema.index({ apiKey: 1 });
 whatsappActivationSchema.index({ isActive: 1 });
+whatsappActivationSchema.index({ botNumber: 1 });
 
 // ===== MÉTODOS DE INSTÂNCIA =====
 
@@ -114,10 +117,10 @@ whatsappActivationSchema.methods.reactivate = async function() {
 // ===== MÉTODOS ESTÁTICOS =====
 
 /**
- * Busca por telefone
+ * Busca por Group ID
  */
-whatsappActivationSchema.statics.findByPhone = function(phone) {
-    return this.findOne({ phone, isActive: true });
+whatsappActivationSchema.statics.findByGroupId = function(groupId) {
+    return this.findOne({ groupId, isActive: true });
 };
 
 /**
@@ -125,6 +128,13 @@ whatsappActivationSchema.statics.findByPhone = function(phone) {
  */
 whatsappActivationSchema.statics.findByApiKey = function(apiKey) {
     return this.find({ apiKey, isActive: true });
+};
+
+/**
+ * Busca por número do bot (opcional)
+ */
+whatsappActivationSchema.statics.findByBotNumber = function(botNumber) {
+    return this.find({ botNumber, isActive: true });
 };
 
 /**
