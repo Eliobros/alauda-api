@@ -31,7 +31,15 @@ const whatsappActivationSchema = new mongoose.Schema({
         type: String,
         default: null,
         trim: true,
-        match: [/^258\d{9}$/, 'Telefone inválido (formato: 258XXXXXXXXX)']
+        validate: {
+            validator: function(v) {
+                // Se for null ou vazio, aceita
+                if (!v) return true;
+                // Aceita qualquer número de telefone válido (mínimo 10 dígitos)
+                return /^\d{10,15}$/.test(v);
+            },
+            message: 'Telefone inválido (deve conter entre 10 e 15 dígitos)'
+        }
     },
 
     // ===== STATUS =====
