@@ -1,0 +1,28 @@
+node_modules
+.git
+.env
+.DS_Store
+dist
+build
+.mozhost.json
+*.log
+.vscode
+.idea
+__pycache__
+*.pyc
+venv
+env
+# Arquivos temporários
+tmp/
+temp/
+/tmp/tmp9ldssgat
+1761702370702-player-script.js
+1761702370728-player-script.js
+
+# Arquivos de teste
+test-audio.mp3
+teste02.js
+teste03.js
+testSpotifyDL.js
+createTestKey.js
+package-lock.json

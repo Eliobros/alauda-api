@@ -1,0 +1,928 @@
+openapi: 3.0.3
+info:
+  title: Alauda API
+  version: 1.0.0
+  description: |
+    🚀 **Alauda API - Multi-Service Integration Platform**
+    
+    All-in-one API for media downloads, social media content, music identification, payment processing and more. Built for developers who need reliable, fast and affordable integrations.
+    
+    ## 🎯 Features
+    
+    **Media Downloads:**
+    - 🎵 Spotify - Search and download tracks
+    - 📹 YouTube - Video and audio downloader
+    - 🎬 TikTok - Download videos without watermark
+    - 📸 Instagram - Download posts, reels, stories
+    - 📘 Facebook - Video downloader
+    
+    **Music Services:**
+    - 🎤 Shazam - Identify any song
+    - 📝 Lyrics - Search song lyrics worldwide
+    
+    **Utilities:**
+    - 🆔 CPF Validator - Brazilian tax ID validation
+    - 🖼️ Background Remover - AI-powered image processing
+    - 💬 WhatsApp Utils - Formatting and validation tools
+    
+    **Payment Processing:**
+    - 💳 MercadoPago - Brazil and LATAM payments
+    - 📱 M-Pesa - Mozambique mobile money (Vodacom)
+    - 📱 E-Mola - Mozambique mobile money (Movitel)
+    
+    ## 🌍 Developed in Mozambique 🇲🇿 | Available Worldwide
+    
+    **Created by:** Zeus Lykraios 💎
+    
+    ## 🔑 Authentication
+    
+    All endpoints (except `/` and `/health`) require an API key sent in the `X-API-Key` header.
+    
+    Get your free API key at: https://alauda-api.topazioverse.com.br/api/auth/register
+    
+    ## 💰 Credits System
+    
+    Each API call consumes credits based on the endpoint used. Credits are deducted automatically.
+    
+    ## 📊 Rate Limiting
+    
+    Rate limits depend on your plan:
+    - **Free:** 100 requests/day
+    - **Basic:** 1,000 requests/day
+    - **Pro:** 10,000 requests/day
+    - **Premium:** Unlimited
+    
+  contact:
+    name: Zeus Lykraios
+    email: support@topazioverse.com.br
+  license:
+    name: Proprietary
+    url: https://alauda-api.topazioverse.com.br/license
+
+servers:
+  - url: https://alauda-api.topazioverse.com.br
+    description: Production Server (Mozambique)
+  - url: http://208.110.72.191:3003
+    description: Direct IP Access
+
+tags:
+  - name: Media Downloads
+    description: Download content from social media platforms
+  - name: Music Services
+    description: Music identification and lyrics search
+  - name: Utilities
+    description: Useful tools and validators
+  - name: Payments
+    description: Payment processing integrations
+  - name: System
+    description: System endpoints (health, auth, keys)
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /:
+    get:
+      tags:
+        - System
+      summary: API Info
+      description: Returns basic API information and available endpoints
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "⚡ Alauda API - Online"
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  author:
+                    type: string
+                    example: "Zëüs Lykraios 💎"
+                  endpoints:
+                    type: object
+                  docs:
+                    type: string
+
+  /health:
+    get:
+      tags:
+        - System
+      summary: Health Check
+      description: Check API health status
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  uptime:
+                    type: number
+                    example: 123456.789
+                  timestamp:
+                    type: string
+                    format: date-time
+                  mongodb:
+                    type: string
+                    enum: [connected, disconnected]
+
+  /api/tiktok/download:
+    post:
+      tags:
+        - Media Downloads
+      summary: Download TikTok Video
+      description: Download TikTok videos without watermark, including HD version and audio
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  description: TikTok video URL
+                  example: "https://www.tiktok.com/@user/video/7123456789012345678"
+      responses:
+        '200':
+          description: Video downloaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  video:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        type: string
+                      cover:
+                        type: string
+                        format: uri
+                      duration:
+                        type: integer
+                      download:
+                        type: object
+                        properties:
+                          no_watermark:
+                            type: string
+                            format: uri
+                          watermark:
+                            type: string
+                            format: uri
+                          hd:
+                            type: string
+                            format: uri
+                      audio:
+                        type: string
+                        format: uri
+                      stats:
+                        type: object
+                        properties:
+                          plays:
+                            type: integer
+                          likes:
+                            type: integer
+                          comments:
+                            type: integer
+                          shares:
+                            type: integer
+                      author:
+                        type: object
+                        properties:
+                          username:
+                            type: string
+                          nickname:
+                            type: string
+                          avatar:
+                            type: string
+                            format: uri
+                  credits_remaining:
+                    type: integer
+                    example: 95
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          $ref: '#/components/responses/InsufficientCredits'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/tiktok/info:
+    get:
+      tags:
+        - Media Downloads
+      summary: TikTok Endpoint Info
+      description: Get information about TikTok endpoint
+      security: []
+      responses:
+        '200':
+          description: Endpoint information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointInfo'
+
+  /api/tiktok/batch:
+    post:
+      tags:
+        - Media Downloads
+      summary: Batch Download TikTok Videos
+      description: Download multiple TikTok videos at once (Pro/Premium plans only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - urls
+              properties:
+                urls:
+                  type: array
+                  items:
+                    type: string
+                  maxItems: 10
+                  example:
+                    - "https://www.tiktok.com/@user1/video/123"
+                    - "https://www.tiktok.com/@user2/video/456"
+      responses:
+        '200':
+          description: Batch download completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  total:
+                    type: integer
+                  successful:
+                    type: integer
+                  failed:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      type: object
+                  credits_remaining:
+                    type: integer
+        '403':
+          description: Plan not eligible for batch downloads
+
+  /api/spotify/search:
+    post:
+      tags:
+        - Music Services
+      summary: Search Spotify Tracks
+      description: Search for songs on Spotify by query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  description: Search query (song name, artist, etc)
+                  example: "I'm so paid Akon"
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      query:
+                        type: string
+                      tracks:
+                        type: array
+                        items:
+                          type: object
+                  credits_remaining:
+                    type: integer
+
+  /api/spotify/download:
+    post:
+      tags:
+        - Music Services
+      summary: Download Spotify Track
+      description: Download a track from Spotify
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  example: "Bad Guy Billie Eilish"
+      responses:
+        '200':
+          description: Download link generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  download:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                        format: uri
+                      title:
+                        type: string
+                      artist:
+                        type: string
+                      duration:
+                        type: integer
+                  credits_remaining:
+                    type: integer
+
+  /api/youtube/download:
+    post:
+      tags:
+        - Media Downloads
+      summary: Download YouTube Video/Audio
+      description: Download videos or audio from YouTube
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  example: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                format:
+                  type: string
+                  enum: [video, audio]
+                  default: video
+                quality:
+                  type: string
+                  enum: [highest, lowest, 720p, 1080p]
+                  default: highest
+      responses:
+        '200':
+          description: Download ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  download:
+                    type: object
+                  credits_remaining:
+                    type: integer
+
+  /api/instagram/download:
+    post:
+      tags:
+        - Media Downloads
+      summary: Download Instagram Content
+      description: Download posts, reels, stories from Instagram
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  example: "https://www.instagram.com/p/ABC123/"
+      responses:
+        '200':
+          description: Content downloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  media:
+                    type: object
+                  credits_remaining:
+                    type: integer
+
+  /api/facebook/download:
+    post:
+      tags:
+        - Media Downloads
+      summary: Download Facebook Video
+      description: Download videos from Facebook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  example: "https://www.facebook.com/watch?v=123456789"
+      responses:
+        '200':
+          description: Video downloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  video:
+                    type: object
+                  credits_remaining:
+                    type: integer
+
+  /api/shazam/identify:
+    post:
+      tags:
+        - Music Services
+      summary: Identify Music (Shazam)
+      description: Identify a song using audio file or URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - audio
+              properties:
+                audio:
+                  type: string
+                  description: Audio file URL or base64
+                  example: "https://example.com/audio.mp3"
+      responses:
+        '200':
+          description: Song identified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  song:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                      artist:
+                        type: string
+                      album:
+                        type: string
+                      release_date:
+                        type: string
+                  credits_remaining:
+                    type: integer
+
+  /api/lyrics/search:
+    post:
+      tags:
+        - Music Services
+      summary: Search Song Lyrics
+      description: Search for lyrics of any song
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  example: "Bohemian Rhapsody Queen"
+      responses:
+        '200':
+          description: Lyrics found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  lyrics:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                      artist:
+                        type: string
+                      lyrics:
+                        type: string
+                  credits_remaining:
+                    type: integer
+
+  /api/cpf/validate:
+    post:
+      tags:
+        - Utilities
+      summary: Validate Brazilian CPF
+      description: Validate Brazilian tax identification number (CPF)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - cpf
+              properties:
+                cpf:
+                  type: string
+                  example: "123.456.789-00"
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  valid:
+                    type: boolean
+                  cpf:
+                    type: string
+                  formatted:
+                    type: string
+                  credits_remaining:
+                    type: integer
+
+  /api/remove/background:
+    post:
+      tags:
+        - Utilities
+      summary: Remove Image Background
+      description: Remove background from images using AI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  description: Image URL or base64
+                  example: "https://example.com/image.jpg"
+      responses:
+        '200':
+          description: Background removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  result:
+                    type: string
+                    format: uri
+                  credits_remaining:
+                    type: integer
+
+  /api/whatsapp/format:
+    post:
+      tags:
+        - Utilities
+      summary: Format WhatsApp Number
+      description: Format and validate WhatsApp phone numbers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - number
+              properties:
+                number:
+                  type: string
+                  example: "258841234567"
+      responses:
+        '200':
+          description: Number formatted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  formatted:
+                    type: string
+                  valid:
+                    type: boolean
+                  credits_remaining:
+                    type: integer
+
+  /api/payment/mercadopago:
+    post:
+      tags:
+        - Payments
+      summary: Create MercadoPago Payment
+      description: Create a payment link via MercadoPago (Brazil/LATAM)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - amount
+                - usuario_id
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "cliente@email.com"
+                amount:
+                  type: number
+                  minimum: 5
+                  example: 50.00
+                description:
+                  type: string
+                  example: "Compra de produto"
+                usuario_id:
+                  type: string
+                  example: "123"
+      responses:
+        '200':
+          description: Payment link created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+
+  /api/payment/mpesa:
+    post:
+      tags:
+        - Payments
+      summary: Process M-Pesa Payment
+      description: Process payment via M-Pesa (Vodacom Mozambique)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - valor
+                - numero_celular
+                - usuario_id
+              properties:
+                valor:
+                  type: string
+                  example: "100.00"
+                numero_celular:
+                  type: string
+                  pattern: '^(84|85)\d{7}$'
+                  example: "841234567"
+                usuario_id:
+                  type: string
+                  example: "123"
+      responses:
+        '200':
+          description: Payment processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobilePaymentResponse'
+
+  /api/payment/emola:
+    post:
+      tags:
+        - Payments
+      summary: Process E-Mola Payment
+      description: Process payment via E-Mola (Movitel Mozambique)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - valor
+                - numero_celular
+                - usuario_id
+              properties:
+                valor:
+                  type: string
+                  example: "50.00"
+                numero_celular:
+                  type: string
+                  pattern: '^(86|87)\d{7}$'
+                  example: "861234567"
+                usuario_id:
+                  type: string
+                  example: "456"
+      responses:
+        '200':
+          description: Payment processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobilePaymentResponse'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key for authentication. Get yours at: https://alauda-api.topazioverse.com.br/api/auth/register
+
+  schemas:
+    EndpointInfo:
+      type: object
+      properties:
+        success:
+          type: boolean
+        endpoint:
+          type: string
+        description:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+        cost:
+          type: string
+        usage:
+          type: object
+
+    PaymentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        provider:
+          type: string
+        payment:
+          type: object
+          properties:
+            id:
+              type: string
+            init_point:
+              type: string
+              format: uri
+            external_reference:
+              type: string
+        credits_remaining:
+          type: integer
+
+    MobilePaymentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        provider:
+          type: string
+        payment:
+          type: object
+          properties:
+            transaction_id:
+              type: string
+            conversation_id:
+              type: string
+            response_code:
+              type: string
+            response_desc:
+              type: string
+        credits_remaining:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        message:
+          type: string
+
+    ValidationError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Validation error"
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+  responses:
+    Unauthorized:
+      description: Invalid or missing API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error: "API Key inválida ou expirada"
+
+    ValidationError:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+
+    InsufficientCredits:
+      description: Not enough credits
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error: "Créditos insuficientes"
+            required: 5
+            available: 2
+
+    ServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error: "Erro interno do servidor"

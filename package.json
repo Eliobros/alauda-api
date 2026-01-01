@@ -23,8 +23,10 @@
     "form-data": "^4.0.4",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mercadopago": "^2.10.0",
     "mongoose": "^8.19.2",
     "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
     "spdl-core": "^2.0.2",
     "spotify-web-api-node": "^5.0.2",
     "spotifydl-core": "^0.2.0"

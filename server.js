@@ -3,6 +3,8 @@
 // API de cases para bots WhatsApp - Moçambique
 
 require('dotenv').config();
+const { startPaymentCronJobs } = require('./jobs/paymentCron');
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -28,9 +30,10 @@ const youtubeRoutes = require('./routes/youtube');
 const instagramRoutes = require('./routes/instagram');
 const whatsappRoutes = require('./routes/whatsapp');
 const shazamRoutes = require('./routes/shazam');
-//const paymentRoutes = require('./routes/payment');
+const paymentRoutes = require('./routes/payment');
 //const dashboardRoutes = require('./routes/dashboard');
 const facebookRoutes = require('./routes/facebook');
+const xvideosRoutes = require('./routes/xvideos');
 
 // Inicializa Express
 const app = express();
@@ -43,11 +46,21 @@ app.use(express.json()); // Parse JSON
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded
 app.use(logger); // Log de todas as requests
 
+app.use((req, res, next) => {
+    console.log('\n📥 ===== REQUEST RECEBIDO =====');
+    console.log('URL:', req.url);
+    console.log('Method:', req.method);
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('================================\n');
+    next();
+});
+
 // ===== CONECTA NO MONGODB =====
 mongoose.connect(process.env.MONGODB_URI || dbConfig.uri, dbConfig.options)
     .then(() => {
         console.log('✅ MongoDB conectado com sucesso!');
         console.log(`📊 Database: ${process.env.MONGODB_URI.includes('atlas') ? 'MongoDB Atlas ☁️' : 'MongoDB Local 💻'}`);
+	startPaymentCronJobs();
     })
     .catch((error) => {
         console.error('❌ Erro ao conectar no MongoDB:', error.message);
@@ -70,7 +83,10 @@ app.get('/', (req, res) => {
             whatsapp: '/api/whatsapp',
             spotify: '/api/spotify',
             shazam: '/api/shazam',
-            facebook: '/api/facebook'
+            facebook: '/api/facebook',
+	    xvieos: '/api/xvideos',
+	    payments: '/api/payments',
+	    cpf: '/api/cpf',
         },
         docs: 'https://docs.alauda.api/v1'
     });
@@ -110,10 +126,10 @@ registerRoute('/api/youtube', youtubeRoutes, 'YouTube Downloader');
 registerRoute('/api/instagram', instagramRoutes, 'Instagram Downloader');
 registerRoute('/api/whatsapp', whatsappRoutes, 'WhatsApp Utils');
 registerRoute('/api/shazam', shazamRoutes, 'Shazam Music Identifier');
-//registerRoute('/api/payment', paymentRoutes, 'Payment System');
+registerRoute('/api/payment', paymentRoutes, 'Payment System');
 //registerRoute('/api/dashboard', dashboardRoutes, 'Dashboard');
 registerRoute('/api/facebook', facebookRoutes, 'Facebook Downloader');
-
+app.use('/api/xvideos', xvideosRoutes);
 console.log(`\n✅ Total: ${loadedRoutes.length} rotas carregadas com sucesso!\n`);
 
 // ===== ROTA 404 =====

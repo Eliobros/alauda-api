@@ -132,22 +132,16 @@ function paginated(res, data, pagination) {
  * Resposta de download/redirect
  */
 function download(res, downloadData) {
+    // Remove credits_remaining dos dados se existir (será adicionado na raiz)
+    const { credits_remaining, ...data } = downloadData;
+    
     return res.status(200).json({
         success: true,
-        data: {
-            title: downloadData.title,
-            url: downloadData.url,
-            thumbnail: downloadData.thumbnail,
-            duration: downloadData.duration,
-            size: downloadData.size,
-            format: downloadData.format,
-            quality: downloadData.quality
-        },
-        credits_remaining: downloadData.credits_remaining,
+        data: data,
+        ...(credits_remaining !== undefined && { credits_remaining }),
         timestamp: new Date().toISOString()
     });
 }
-
 /**
  * Resposta de informações (sem download)
  */
