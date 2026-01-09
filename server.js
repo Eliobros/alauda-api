@@ -18,6 +18,7 @@ const constants = require('./config/constants');
 const logger = require('./middleware/logger');
 
 // Importa rotas
+const validateRoutes = require('./routes/validate');
 const lyricsRoutes = require('./routes/lyrics');
 const authRoutes = require('./routes/auth');
 const keysRoutes = require('./routes/keys');
@@ -85,6 +86,7 @@ app.get('/', (req, res) => {
             shazam: '/api/shazam',
             facebook: '/api/facebook',
 	    xvieos: '/api/xvideos',
+	    validateKeys: '/api/validate/key',
 	    payments: '/api/payments',
 	    cpf: '/api/cpf',
         },
@@ -125,6 +127,7 @@ registerRoute('/api/tiktok', tiktokRoutes, 'TikTok Downloader');
 registerRoute('/api/youtube', youtubeRoutes, 'YouTube Downloader');
 registerRoute('/api/instagram', instagramRoutes, 'Instagram Downloader');
 registerRoute('/api/whatsapp', whatsappRoutes, 'WhatsApp Utils');
+registerRoute('/api/validate', validateRoutes, 'Validação de API Keys');
 registerRoute('/api/shazam', shazamRoutes, 'Shazam Music Identifier');
 registerRoute('/api/payment', paymentRoutes, 'Payment System');
 //registerRoute('/api/dashboard', dashboardRoutes, 'Dashboard');
