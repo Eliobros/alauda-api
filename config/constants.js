@@ -74,9 +74,10 @@ module.exports = {
         YOUTUBE_DOWNLOAD: 50,      // 2 créditos (mais pesado)
         INSTAGRAM_DOWNLOAD: 50,    // 1 crédito
         STATUS_MENTION: 100,        // 1 crédito
+	FACEBOOK_DOWNLOAD: 50
 	CPF_CONSULTA: 50,	    // 50 de credito
-        MPESA_VALIDATE: 1,        // 1 crédito
-        EMOLA_VALIDATE: 1         // 1 crédito
+        MPESA_VALIDATE: 10,        // 1 crédito
+        EMOLA_VALIDATE: 10         // 1 crédito
     },
 
     // ===== RATE LIMITS =====

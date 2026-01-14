@@ -47,15 +47,6 @@ app.use(express.json()); // Parse JSON
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded
 app.use(logger); // Log de todas as requests
 
-app.use((req, res, next) => {
-    console.log('\n📥 ===== REQUEST RECEBIDO =====');
-    console.log('URL:', req.url);
-    console.log('Method:', req.method);
-    console.log('Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('================================\n');
-    next();
-});
-
 // ===== CONECTA NO MONGODB =====
 mongoose.connect(process.env.MONGODB_URI || dbConfig.uri, dbConfig.options)
     .then(() => {

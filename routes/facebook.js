@@ -64,17 +64,30 @@ async function downloadFacebook(url) {
             throw new Error('Erro ao processar vídeo do Facebook. Verifique se o vídeo é público.');
         }
 
-        // ✅ MAPEAMENTO PARA O FORMATO DO response.download()
+        // ✅ RETORNA MÚLTIPLAS QUALIDADES
         return {
             success: true,
             post: {
                 title: data.title || 'Facebook Video',
-                url: data.direct_media_url,  // Link direto do vídeo
+                
+                // URL padrão (prioriza SD se existir, pois geralmente tem áudio)
+                url: data.sd_url || data.direct_media_url,
+                
+                // URLs de diferentes qualidades
+                url_hd: data.hd_url || data.direct_media_url,  // HD (pode não ter áudio)
+                url_sd: data.sd_url || null,  // SD (geralmente COM áudio)
+                
+                // Aviso importante sobre áudio
+                audio_warning: !data.sd_url 
+                    ? "⚠️ Vídeo pode estar sem áudio. Use outra URL do Facebook ou tente /share/r/ format"
+                    : "✅ Use 'url_sd' para garantir áudio no vídeo",
+                
                 thumbnail: data.thumbnail || null,
-                duration: null,  // API não retorna duration
+                duration: null,
                 size: null,
                 format: data.media_type === 'video' ? 'mp4' : 'unknown',
-                quality: 'HD',
+                quality: data.sd_url ? 'SD (com áudio)' : 'HD (possível sem áudio)',
+                
                 // Dados extras
                 original_url: url,
                 media_type: data.media_type
