@@ -62,19 +62,19 @@ module.exports = {
 
     // ===== CUSTOS POR CASE =====
     COSTS: {
-	SHAZAM_IDENTIFY: 100,
+	SHAZAM_IDENTIFY: 300,
         TIKTOK_INFO: 10,           // 1 crédito
-        TIKTOK_DOWNLOAD: 30,       // 1 crédito
-        TWITTER_DOWNLOAD: 50,      // 1 crédito
+        TIKTOK_DOWNLOAD: 100,       // 1 crédito
+        TWITTER_DOWNLOAD: 100,      // 1 crédito
 	SPOTIFY_SEARCH: 10,      // 🆕 ADICIONAR
 	LYRICS_SEARCH: 50, // Adiciona isso
     SPOTIFY_DOWNLOAD: 50,
 	REMOVE_BG: 10,
         YOUTUBE_INFO: 10,          // 1 crédito
-        YOUTUBE_DOWNLOAD: 50,      // 2 créditos (mais pesado)
-        INSTAGRAM_DOWNLOAD: 50,    // 1 crédito
-        STATUS_MENTION: 100,        // 1 crédito
-	FACEBOOK_DOWNLOAD: 50
+        YOUTUBE_DOWNLOAD: 200,      // 2 créditos (mais pesado)
+        INSTAGRAM_DOWNLOAD: 150,    // 1 crédito
+        STATUS_MENTION: 250,        // 1 crédito
+	FACEBOOK_DOWNLOAD: 50,
 	CPF_CONSULTA: 50,	    // 50 de credito
         MPESA_VALIDATE: 10,        // 1 crédito
         EMOLA_VALIDATE: 10         // 1 crédito
