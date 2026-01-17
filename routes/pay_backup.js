@@ -1,4 +1,4 @@
-// ===== ROUTES/PAYMENT.JS - CORRIGIDO =====
+// ===== ROUTES/PAYMENT.JS =====
 // Payment Integration para Alauda API
 // Suporta: MercadoPago, M-Pesa, E-Mola
 
@@ -9,7 +9,6 @@ const authenticateApiKey = require('../middleware/auth');
 const response = require('../utils/responseHandler');
 const constants = require('../config/constants');
 const Payment = require('../models/Payment');
-const User = require('../models/User'); // ✅ ADICIONAR ESTA LINHA!
 const paymentProcessor = require('../utils/paymentProcessor');
 
 // ===== CONFIGURAÇÕES =====
@@ -170,6 +169,62 @@ async function processPayMozPayment(metodo, data) {
     }
 }
 
+
+/*
+async function processPayMozPayment(metodo, data) {
+    try {
+        const { valor, numero_celular, usuario_id } = data;
+
+        if (!['mpesa', 'emola'].includes(metodo)) {
+            throw new Error('Método inválido. Use "mpesa" ou "emola"');
+        }
+
+        const payload = {
+            metodo: metodo,
+            valor: parseFloat(valor).toFixed(2),
+            numero_celular: numero_celular
+        };
+
+        console.log(`📤 Enviando requisição para PayMoz (${metodo.toUpperCase()}):`, payload);
+
+        const fetchResponse = await fetch(PAYMOZ_API_URL, {
+            method: 'POST',
+            headers: {
+                'Authorization': `ApiKey ${PAYMOZ_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const responseData = await fetchResponse.json();
+
+        console.log('📥 Resposta PayMoz:', responseData);
+
+        if (!responseData.sucesso) {
+            throw new Error(responseData.mensagem || 'Erro ao processar pagamento');
+        }
+
+        return {
+            success: true,
+            metodo: metodo.toUpperCase(),
+            valor: valor,
+            numero_celular: numero_celular,
+            usuario_id: usuario_id,
+            transaction_id: responseData.dados?.output_TransactionID,
+            conversation_id: responseData.dados?.output_ConversationID,
+            third_party_reference: responseData.dados?.output_ThirdPartyReference,
+            response_code: responseData.dados?.output_ResponseCode,
+            response_desc: responseData.dados?.output_ResponseDesc,
+            mensagem: responseData.mensagem,
+            created_at: new Date().toISOString()
+        };
+
+    } catch (error) {
+        console.error(`❌ Erro ao processar ${metodo.toUpperCase()}:`, error.message);
+        throw new Error(`Erro ${metodo.toUpperCase()}: ${error.message}`);
+    }
+}
+*/
 // ===== ROTA INFO =====
 
 router.get('/info', (req, res) => {
@@ -241,7 +296,6 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
     try {
         const { email, amount, description, usuario_id, back_urls, notification_url } = req.body;
 
-        // Validações básicas
         if (!email) {
             return response.validationError(res, [
                 { field: 'email', message: 'Email é obrigatório' }
@@ -265,31 +319,11 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
             ]);
         }
 
-        // ===== ✅ CORREÇÃO: Buscar usuário e pegar ObjectId =====
-        const userDoc = await User.findOne({ 
-            $or: [
-                { email: usuario_id.toLowerCase().trim() },
-                { username: usuario_id.toLowerCase().trim() }
-            ] 
-        });
-
-        if (!userDoc) {
-            return response.validationError(res, [
-                { 
-                    field: 'usuario_id', 
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.' 
-                }
-            ]);
-        }
-
-        const mongoUserId = userDoc._id.toString();
-        // ===== FIM DA CORREÇÃO =====
-
         const paymentData = await createPaymentPreference({
             email,
             amount,
             description,
-            usuario_id: mongoUserId, // ✅ Usa ObjectId aqui também
+            usuario_id,
             back_urls,
             notification_url
         });
@@ -299,7 +333,7 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
         const payment = await Payment.createPayment({
             payment_id: paymentData.id,
             provider: 'mercadopago',
-            userId: mongoUserId, // ✅ AGORA USA ObjectId CORRETO!
+            userId: usuario_id,
             apiKey: req.apiKeyData.key,
             email: email,
             amount: amount,
@@ -317,7 +351,7 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
 
         await req.logSuccess({
             case: 'mercadopago_payment_created',
-            usuario_id: mongoUserId,
+            usuario_id: usuario_id,
             amount: amount,
             payment_id: paymentData.id,
             credits_to_add: credits
@@ -347,7 +381,6 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
     try {
         const { valor, numero_celular, usuario_id } = req.body;
 
-        // Validações básicas
         if (!valor || parseFloat(valor) < 1) {
             return response.validationError(res, [
                 { field: 'valor', message: 'Valor mínimo é 1.00 MZN' }
@@ -371,30 +404,10 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
             ]);
         }
 
-        // ===== ✅ CORREÇÃO: Buscar usuário e pegar ObjectId =====
-        const userDoc = await User.findOne({ 
-            $or: [
-                { email: usuario_id.toLowerCase().trim() },
-                { username: usuario_id.toLowerCase().trim() }
-            ] 
-        });
-
-        if (!userDoc) {
-            return response.validationError(res, [
-                { 
-                    field: 'usuario_id', 
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.' 
-                }
-            ]);
-        }
-
-        const mongoUserId = userDoc._id.toString();
-        // ===== FIM DA CORREÇÃO =====
-
         const paymentData = await processPayMozPayment('mpesa', {
             valor,
             numero_celular,
-            usuario_id: mongoUserId // ✅ Passa ObjectId
+            usuario_id
         });
 
         const credits = paymentProcessor.calculateCredits(valor, 'MZN');
@@ -402,7 +415,7 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
         const payment = await Payment.createPayment({
             payment_id: paymentData.transaction_id || `mpesa_${Date.now()}`,
             provider: 'mpesa',
-            userId: mongoUserId, // ✅ AGORA USA ObjectId CORRETO!
+            userId: usuario_id,
             apiKey: req.apiKeyData.key,
             phone: numero_celular,
             amount: valor,
@@ -422,7 +435,7 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
 
         await req.logSuccess({
             case: 'mpesa_payment_created',
-            usuario_id: mongoUserId,
+            usuario_id: usuario_id,
             valor: valor,
             transaction_id: paymentData.transaction_id,
             credits_to_add: credits
@@ -452,7 +465,6 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
     try {
         const { valor, numero_celular, usuario_id } = req.body;
 
-        // Validações básicas
         if (!valor || parseFloat(valor) < 1) {
             return response.validationError(res, [
                 { field: 'valor', message: 'Valor mínimo é 1.00 MZN' }
@@ -476,30 +488,10 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
             ]);
         }
 
-        // ===== ✅ CORREÇÃO: Buscar usuário e pegar ObjectId =====
-        const userDoc = await User.findOne({ 
-            $or: [
-                { email: usuario_id.toLowerCase().trim() },
-                { username: usuario_id.toLowerCase().trim() }
-            ] 
-        });
-
-        if (!userDoc) {
-            return response.validationError(res, [
-                { 
-                    field: 'usuario_id', 
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.' 
-                }
-            ]);
-        }
-
-        const mongoUserId = userDoc._id.toString();
-        // ===== FIM DA CORREÇÃO =====
-
         const paymentData = await processPayMozPayment('emola', {
             valor,
             numero_celular,
-            usuario_id: mongoUserId // ✅ Passa ObjectId
+            usuario_id
         });
 
         const credits = paymentProcessor.calculateCredits(valor, 'MZN');
@@ -507,7 +499,7 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
         const payment = await Payment.createPayment({
             payment_id: paymentData.transaction_id || `emola_${Date.now()}`,
             provider: 'emola',
-            userId: mongoUserId, // ✅ AGORA USA ObjectId CORRETO!
+            userId: usuario_id,
             apiKey: req.apiKeyData.key,
             phone: numero_celular,
             amount: valor,
@@ -527,7 +519,7 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
 
         await req.logSuccess({
             case: 'emola_payment_created',
-            usuario_id: mongoUserId,
+            usuario_id: usuario_id,
             valor: valor,
             transaction_id: paymentData.transaction_id,
             credits_to_add: credits
@@ -697,4 +689,3 @@ router.get('/status/:payment_id', authenticateApiKey, response.asyncHandler(asyn
 }));
 
 module.exports = router;
-

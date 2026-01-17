@@ -45,7 +45,7 @@ const upload = multer({
  */
 function isValidAudioUrl(url) {
     if (!url || typeof url !== 'string') return false;
-    
+
     try {
         new URL(url);
         const audioExtensions = ['.mp3', '.wav', '.m4a', '.ogg', '.aac', '.flac', '.webm'];
@@ -194,52 +194,77 @@ router.get('/info', (req, res) => {
 });
 
 // ===== IDENTIFICAR POR UPLOAD =====
-router.post('/identify', authenticateApiKey, upload.single('audio_file'), response.asyncHandler(async (req, res) => {
-    try {
-        // Verifica se arquivo foi enviado
-        if (!req.file) {
-            return response.validationError(res, [{
-                field: 'audio_file',
-                message: 'Arquivo de áudio é obrigatório'
-            }]);
-        }
-
-        console.log('🎵 Identificando música por upload...');
-        console.log('- Arquivo:', req.file.originalname);
-        console.log('- Tamanho:', (req.file.size / 1024 / 1024).toFixed(2), 'MB');
-        console.log('- Tipo:', req.file.mimetype);
-
-        // Identifica a música
-        const result = await identifyMusicFromBuffer(req.file.buffer, req.file.originalname);
-
-        // Log de sucesso
-        await req.logSuccess({
-            case: 'shazam_identify',
-            method: 'upload',
-            file_size: req.file.size,
-            music_title: result.music.title,
-            music_artist: result.music.artist
+router.post('/identify',
+    // 🔍 DEBUG MIDDLEWARE
+    (req, res, next) => {
+        console.log('\n🔍 === DEBUG SHAZAM UPLOAD ===');
+        console.log('📋 Headers:', {
+            'content-type': req.headers['content-type'],
+            'content-length': req.headers['content-length'],
+            'x-api-key': req.headers['x-api-key'] ? 'presente' : 'ausente'
         });
+        console.log('📦 Body keys:', Object.keys(req.body));
+        console.log('📁 Files:', req.files ? 'presente' : 'ausente');
+        console.log('================================\n');
+        next();
+    },
+    // AUTENTICAÇÃO
+    authenticateApiKey,
+    // UPLOAD
+    upload.single('audio_file'),
+    // HANDLER
+    response.asyncHandler(async (req, res) => {
+        try {
+            // Verifica se arquivo foi enviado
+            if (!req.file) {
+                console.log('❌ Nenhum arquivo recebido!');
+                console.log('- req.file:', req.file);
+                console.log('- req.body:', req.body);
+                return response.validationError(res, [{
+                    field: 'audio_file',
+                    message: 'Arquivo de áudio é obrigatório'
+                }]);
+            }
 
-        return response.success(res, {
-            ...result.music,
-            credits_remaining: req.apiKeyData.credits
-        });
+            console.log('✅ Arquivo recebido com sucesso!');
+            console.log('📄 Arquivo:', req.file.originalname);
+            console.log('📏 Tamanho:', (req.file.size / 1024 / 1024).toFixed(2), 'MB');
+            console.log('🎵 Tipo:', req.file.mimetype);
 
-    } catch (error) {
-        console.error('❌ Erro na rota Shazam (upload):', error);
-        await req.logError(500, error.message, { case: 'shazam_identify', method: 'upload' });
+            // Identifica a música
+            const result = await identifyMusicFromBuffer(req.file.buffer, req.file.originalname);
 
-        if (error.message.includes('Formato')) {
-            return response.error(res, error.message, 400);
+            console.log('🎉 Música identificada:', result.music.title, '-', result.music.artist);
+
+            // Log de sucesso
+            await req.logSuccess({
+                case: 'shazam_identify',
+                method: 'upload',
+                file_size: req.file.size,
+                music_title: result.music.title,
+                music_artist: result.music.artist
+            });
+
+            return response.success(res, {
+                track: result.music,
+                credits_remaining: req.apiKeyData.credits
+            });
+
+        } catch (error) {
+            console.error('❌ Erro na rota Shazam (upload):', error.message);
+            await req.logError(500, error.message, { case: 'shazam_identify', method: 'upload' });
+
+            if (error.message.includes('Formato')) {
+                return response.error(res, error.message, 400);
+            }
+            if (error.message.includes('não reconhecida')) {
+                return response.error(res, error.message, 404);
+            }
+
+            return response.error(res, error.message, 500);
         }
-        if (error.message.includes('não reconhecida')) {
-            return response.error(res, error.message, 404);
-        }
-
-        return response.error(res, error.message, 500);
-    }
-}));
+    })
+);
 
 // ===== IDENTIFICAR POR URL =====
 router.post('/identify-url', authenticateApiKey, response.asyncHandler(async (req, res) => {
@@ -277,7 +302,7 @@ router.post('/identify-url', authenticateApiKey, response.asyncHandler(async (re
         });
 
         return response.success(res, {
-            ...result.music,
+            track: result.music,
             credits_remaining: req.apiKeyData.credits
         });
 

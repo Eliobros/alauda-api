@@ -34,11 +34,11 @@ async function authenticateApiKey(req, res, next) {
         // ===== RAPIDAPI HANDLER =====
         // Detecta se request veio do RapidAPI
         const isFromRapidAPI = req.headers['x-rapidapi-host'] === 'alauda-api.p.rapidapi.com';
-        
+
         if (isFromRapidAPI) {
             console.log('🔵 Request via RapidAPI detectada');
             console.log('🎫 RapidAPI Key:', req.headers['x-rapidapi-key']?.substring(0, 10) + '...');
-            
+
             // Cria objeto "virtual" com créditos ilimitados
             req.apiKeyData = {
                 _id: 'rapidapi-user',
@@ -49,7 +49,7 @@ async function authenticateApiKey(req, res, next) {
                 credits: 999999,
                 requestsToday: 0,
                 totalRequests: 0,
-                
+
                 // Métodos necessários
                 isValid: () => true,
                 hasCredits: (amount) => true,
@@ -61,22 +61,22 @@ async function authenticateApiKey(req, res, next) {
                     console.log('⚠️  RapidAPI: Falha registrada');
                 }
             };
-            
-            req.creditsNeeded = getCreditsCost(req.path);
+
+            req.creditsNeeded = getCreditsCost(req.originalUrl); // ✅ CORRIGIDO!
             req.startTime = startTime;
             req.clientIP = getClientIP(req);
             req.userAgent = getUserAgent(req);
-            
+
             // Log de sucesso para RapidAPI
             req.logSuccess = async (responseData = {}) => {
                 const responseTime = Date.now() - startTime;
-                
+
                 console.log('✅ RapidAPI Request Success:', {
                     endpoint: req.originalUrl,
                     responseTime: `${responseTime}ms`,
-                    case: getCaseName(req.path)
+                    case: getCaseName(req.originalUrl)
                 });
-                
+
                 // Log no banco (opcional - para analytics)
                 try {
                     await Usage.logUsage({
@@ -84,7 +84,7 @@ async function authenticateApiKey(req, res, next) {
                         userId: 'rapidapi-user',
                         endpoint: req.originalUrl || req.url,
                         method: req.method,
-                        case: getCaseName(req.path),
+                        case: getCaseName(req.originalUrl),
                         requestBody: sanitizeRequestBody(req.body),
                         statusCode: 200,
                         success: true,
@@ -99,17 +99,17 @@ async function authenticateApiKey(req, res, next) {
                     console.error('⚠️  Erro ao logar uso RapidAPI:', logError.message);
                 }
             };
-            
+
             // Log de erro para RapidAPI
             req.logError = async (statusCode, errorMsg) => {
                 const responseTime = Date.now() - startTime;
-                
+
                 console.error('❌ RapidAPI Request Error:', {
                     endpoint: req.originalUrl,
                     error: errorMsg,
                     statusCode
                 });
-                
+
                 // Log no banco (opcional)
                 try {
                     await Usage.logUsage({
@@ -117,7 +117,7 @@ async function authenticateApiKey(req, res, next) {
                         userId: 'rapidapi-user',
                         endpoint: req.originalUrl || req.url,
                         method: req.method,
-                        case: getCaseName(req.path),
+                        case: getCaseName(req.originalUrl),
                         requestBody: sanitizeRequestBody(req.body),
                         statusCode: statusCode,
                         success: false,
@@ -133,14 +133,14 @@ async function authenticateApiKey(req, res, next) {
                     console.error('⚠️  Erro ao logar erro RapidAPI:', logError.message);
                 }
             };
-            
+
             console.log('✅ RapidAPI: Autenticação bypass concedida');
             return next(); // LIBERA SEM VALIDAR KEY!
         }
-        
+
         // ===== AUTENTICAÇÃO NORMAL (REQUESTS DIRETOS) =====
         console.log('🔐 Request direto - validando API Key...');
-        
+
         // ===== 1. EXTRAI API KEY =====
         const apiKey = req.headers['x-api-key'] ||
                       req.body?.apiKey ||
@@ -181,7 +181,11 @@ async function authenticateApiKey(req, res, next) {
         }
 
         // ===== 4. VERIFICA CRÉDITOS =====
-        const creditsNeeded = getCreditsCost(req.path);
+        const creditsNeeded = getCreditsCost(req.originalUrl); // ✅ CORRIGIDO!
+
+        console.log(`📍 Rota: ${req.originalUrl}`);
+        console.log(`💰 Créditos necessários: ${creditsNeeded}`);
+        console.log(`💰 Créditos disponíveis: ${keyData.credits}`);
 
         if (!keyData.hasCredits(creditsNeeded)) {
             return res.status(constants.STATUS.PAYMENT_REQUIRED).json({
@@ -231,8 +235,12 @@ async function authenticateApiKey(req, res, next) {
         req.logSuccess = async (responseData = {}) => {
             const responseTime = Date.now() - startTime;
 
+            console.log(`✅ Sucesso! Consumindo ${creditsNeeded} créditos...`);
+
             // Consome créditos
             await keyData.consumeCredits(creditsNeeded);
+
+            console.log(`💰 Créditos restantes: ${keyData.credits}`);
 
             // Log no banco
             await Usage.logUsage({
@@ -240,7 +248,7 @@ async function authenticateApiKey(req, res, next) {
                 userId: keyData.userId,
                 endpoint: req.originalUrl || req.url,
                 method: req.method,
-                case: getCaseName(req.path),
+                case: getCaseName(req.originalUrl),
                 requestBody: sanitizeRequestBody(req.body),
                 statusCode: 200,
                 success: true,
@@ -257,6 +265,8 @@ async function authenticateApiKey(req, res, next) {
         req.logError = async (statusCode, errorMsg) => {
             const responseTime = Date.now() - startTime;
 
+            console.log(`❌ Erro! Não consumindo créditos.`);
+
             // Registra falha (sem consumir créditos)
             await keyData.recordFailure();
 
@@ -266,7 +276,7 @@ async function authenticateApiKey(req, res, next) {
                 userId: keyData.userId,
                 endpoint: req.originalUrl || req.url,
                 method: req.method,
-                case: getCaseName(req.path),
+                case: getCaseName(req.originalUrl),
                 requestBody: sanitizeRequestBody(req.body),
                 statusCode: statusCode,
                 success: false,
@@ -295,45 +305,76 @@ async function authenticateApiKey(req, res, next) {
 
 /**
  * Obtém custo em créditos baseado no endpoint
+ * ✅ CORRIGIDO - Usa req.originalUrl ao invés de req.path
  */
-function getCreditsCost(path) {
-    if (path.includes('/tiktok')) return constants.COSTS.TIKTOK_DOWNLOAD;
-    if (path.includes('/twitter')) return constants.COSTS.TWITTER_DOWNLOAD;
-    if (path.includes('/youtube/download')) return constants.COSTS.YOUTUBE_DOWNLOAD;
-    if (path.includes('/youtube/info')) return constants.COSTS.YOUTUBE_INFO;
-    if (path.includes('/instagram')) return constants.COSTS.INSTAGRAM_DOWNLOAD;
-    if (path.includes('/whatsapp')) return constants.COSTS.STATUS_MENTION;
-    if (path.includes('/payment/mpesa')) return constants.COSTS.MPESA_VALIDATE;
-    if (path.includes('/payment/emola')) return constants.COSTS.EMOLA_VALIDATE;
-    if (path.includes('/spotify')) return constants.COSTS.SPOTIFY_DOWNLOAD || 5;
-    if (path.includes('/facebook')) return constants.COSTS.FACEBOOK_DOWNLOAD || 5;
-    if (path.includes('/shazam')) return constants.COSTS.SHAZAM_IDENTIFY || 10;
-    if (path.includes('/lyrics')) return constants.COSTS.LYRICS_SEARCH || 2;
-    if (path.includes('/cpf')) return constants.COSTS.CPF_VALIDATE || 1;
-    if (path.includes('/remove')) return constants.COSTS.BACKGROUND_REMOVE || 15;
+function getCreditsCost(url) {
+    // TikTok
+    if (url.includes('/tiktok/download')) return constants.COSTS.TIKTOK_DOWNLOAD;
+    if (url.includes('/tiktok/info')) return constants.COSTS.TIKTOK_INFO;
+    if (url.includes('/tiktok')) return constants.COSTS.TIKTOK_DOWNLOAD; // Fallback genérico
 
-    return 1; // Default
+    // Twitter
+    if (url.includes('/twitter')) return constants.COSTS.TWITTER_DOWNLOAD;
+
+    // YouTube
+    if (url.includes('/youtube/download')) return constants.COSTS.YOUTUBE_DOWNLOAD;
+    if (url.includes('/youtube/info')) return constants.COSTS.YOUTUBE_INFO;
+    if (url.includes('/youtube')) return constants.COSTS.YOUTUBE_DOWNLOAD; // Fallback genérico
+
+    // Instagram
+    if (url.includes('/instagram')) return constants.COSTS.INSTAGRAM_DOWNLOAD;
+
+    // WhatsApp
+    if (url.includes('/whatsapp')) return constants.COSTS.STATUS_MENTION;
+
+    // Spotify
+    if (url.includes('/spotify/search')) return constants.COSTS.SPOTIFY_SEARCH;
+    if (url.includes('/spotify/download')) return constants.COSTS.SPOTIFY_DOWNLOAD;
+    if (url.includes('/spotify')) return constants.COSTS.SPOTIFY_DOWNLOAD; // Fallback genérico
+
+    // Facebook
+    if (url.includes('/facebook')) return constants.COSTS.FACEBOOK_DOWNLOAD;
+
+    // Shazam
+    if (url.includes('/shazam')) return constants.COSTS.SHAZAM_IDENTIFY;
+
+    // Lyrics
+    if (url.includes('/lyrics')) return constants.COSTS.LYRICS_SEARCH;
+
+    // CPF - ✅ CORRIGIDO!
+    if (url.includes('/cpf')) return constants.COSTS.CPF_CONSULTA;
+
+    // Remove Background - ✅ CORRIGIDO!
+    if (url.includes('/remove')) return constants.COSTS.REMOVE_BG;
+
+    // Pagamentos
+    if (url.includes('/payment/mpesa')) return constants.COSTS.MPESA_VALIDATE;
+    if (url.includes('/payment/emola')) return constants.COSTS.EMOLA_VALIDATE;
+
+    // ⚠️ Default para rotas não mapeadas
+    console.warn(`⚠️ Rota não mapeada: ${url} - usando custo padrão de 1 crédito`);
+    return 1;
 }
 
 /**
- * Obtém nome da case baseado no path
+ * Obtém nome da case baseado no url
  */
-function getCaseName(path) {
-    if (path.includes('/tiktok')) return 'tiktok_download';
-    if (path.includes('/twitter')) return 'twitter_download';
-    if (path.includes('/youtube/download')) return 'youtube_download';
-    if (path.includes('/youtube/info')) return 'youtube_info';
-    if (path.includes('/instagram')) return 'instagram_download';
-    if (path.includes('/whatsapp')) return 'status_mention';
-    if (path.includes('/payment/mpesa')) return 'mpesa_payment';
-    if (path.includes('/payment/emola')) return 'emola_payment';
-    if (path.includes('/payment/mercadopago')) return 'mercadopago_payment';
-    if (path.includes('/spotify')) return 'spotify_download';
-    if (path.includes('/facebook')) return 'facebook_download';
-    if (path.includes('/shazam')) return 'shazam_identify';
-    if (path.includes('/lyrics')) return 'lyrics_search';
-    if (path.includes('/cpf')) return 'cpf_validate';
-    if (path.includes('/remove')) return 'background_remove';
+function getCaseName(url) {
+    if (url.includes('/tiktok')) return 'tiktok_download';
+    if (url.includes('/twitter')) return 'twitter_download';
+    if (url.includes('/youtube/download')) return 'youtube_download';
+    if (url.includes('/youtube/info')) return 'youtube_info';
+    if (url.includes('/instagram')) return 'instagram_download';
+    if (url.includes('/whatsapp')) return 'status_mention';
+    if (url.includes('/payment/mpesa')) return 'mpesa_payment';
+    if (url.includes('/payment/emola')) return 'emola_payment';
+    if (url.includes('/payment/mercadopago')) return 'mercadopago_payment';
+    if (url.includes('/spotify')) return 'spotify_download';
+    if (url.includes('/facebook')) return 'facebook_download';
+    if (url.includes('/shazam')) return 'shazam_identify';
+    if (url.includes('/lyrics')) return 'lyrics_search';
+    if (url.includes('/cpf')) return 'cpf_validate';
+    if (url.includes('/remove')) return 'background_remove';
 
     return 'unknown';
 }
@@ -354,3 +395,4 @@ function sanitizeRequestBody(body) {
 }
 
 module.exports = authenticateApiKey;
+
