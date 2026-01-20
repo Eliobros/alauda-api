@@ -17,27 +17,37 @@ const upload = multer({
         fileSize: 50 * 1024 * 1024 // 50MB
     },
     fileFilter: (req, file, cb) => {
-        const allowedFormats = [
-            'audio/mpeg',      // MP3
-            'audio/mp3',
-            'audio/wav',       // WAV
-            'audio/wave',
-            'audio/x-wav',
-            'audio/mp4',       // M4A
-            'audio/m4a',
-            'audio/x-m4a',
-            'audio/ogg',       // OGG
-            'audio/aac',       // AAC
-            'audio/flac',      // FLAC
-            'audio/webm'       // WEBM
-        ];
+    // DEBUG - LOG PRA VER O QUE TÁ CHEGANDO
+    console.log('🎵 Arquivo recebido:', {
+        fieldname: file.fieldname,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        encoding: file.encoding
+    });
+    
+    const allowedFormats = [
+        'audio/mpeg',      // MP3
+        'audio/mp3',
+        'audio/wav',       // WAV
+        'audio/wave',
+        'audio/x-wav',
+        'audio/mp4',       // M4A
+        'audio/m4a',
+        'audio/x-m4a',
+        'audio/ogg',       // OGG
+        'audio/aac',       // AAC
+        'audio/flac',      // FLAC
+        'audio/webm'       // WEBM
+    ];
 
-        if (allowedFormats.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Formato de áudio não suportado. Use: MP3, WAV, M4A, OGG, AAC, FLAC, WEBM'));
-        }
+    if (allowedFormats.includes(file.mimetype)) {
+        console.log('✅ Formato aceito!');
+        cb(null, true);
+    } else {
+        console.log('❌ Formato rejeitado:', file.mimetype);
+        cb(new Error('Formato de áudio não suportado. Use: MP3, WAV, M4A, OGG, AAC, FLAC, WEBM'));
     }
+}
 });
 
 /**
@@ -77,9 +87,14 @@ async function identifyMusicFromBuffer(audioBuffer, originalName) {
                 },
                 maxContentLength: Infinity,
                 maxBodyLength: Infinity,
-                timeout: 60000 // 60 segundos
+                timeout: 200000 // 60 segundos
             }
         );
+
+	console.log('✅ Resposta recebida da RapidAPI!');
+	console.log('📊 Status:', rapidApiResponse.status);
+	console.log('🎵 Track:', rapidApiResponse.data.track?.title || 'não encontrada');
+
 
         const data = rapidApiResponse.data;
 
@@ -195,7 +210,9 @@ router.get('/info', (req, res) => {
 
 // ===== IDENTIFICAR POR UPLOAD =====
 router.post('/identify',
-    // 🔍 DEBUG MIDDLEWARE
+  
+  // 🔍 DEBUG MIDDLEWARE
+/*
     (req, res, next) => {
         console.log('\n🔍 === DEBUG SHAZAM UPLOAD ===');
         console.log('📋 Headers:', {
@@ -208,6 +225,7 @@ router.post('/identify',
         console.log('================================\n');
         next();
     },
+*/
     // AUTENTICAÇÃO
     authenticateApiKey,
     // UPLOAD

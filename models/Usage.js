@@ -28,26 +28,29 @@ const usageSchema = new mongoose.Schema({
         default: 'POST'
     },
     case: {
-        type: String,
-        enum: [
-            'tiktok_download',
-            'twitter_download', 
-            'youtube_download',
-            'youtube_info',
-	    'lyrics_suggestions',
-	    'lyrics_batch',
-	    'lyrics_search',
-	    'emola_payment',
-	    'mpesa_payment',
-            'instagram_download',
-            'status_mention',
-            'mpesa_validate',
-            'emola_validate',
-	    'unknown'
-        ],
-        required: true,
-        index: true
-    },
+    type: String,
+    enum: [
+        'tiktok_download',
+        'twitter_download',
+        'youtube_download',
+        'youtube_info',
+        'lyrics_suggestions',
+        'lyrics_batch',
+        'lyrics_search',
+        'emola_payment',
+        'mpesa_payment',
+        'instagram_download',
+        'facebook_download',      // ← ADICIONA AQUI
+        'spotify_download',       // ← ADICIONA AQUI (se tiver)
+        'shazam_identify',        // ← ADICIONA AQUI (se tiver)
+        'status_mention',
+        'mpesa_validate',
+        'emola_validate',
+        'unknown'
+    ],
+    required: true,
+    index: true
+},
     
     // ===== REQUEST DETAILS =====
     requestBody: {
