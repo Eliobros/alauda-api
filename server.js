@@ -26,6 +26,8 @@ const cpfRoutes = require('./routes/cpf');
 const spotifyRoutes = require('./routes/spotify');
 const removeRoutes = require('./routes/remove');
 const tiktokRoutes = require('./routes/tiktok');
+const vocalRemoveRoutes = require('./routes/vocalremove'); 
+
 //const twitterRoutes = require('./routes/twitter');
 const youtubeRoutes = require('./routes/youtube');
 const instagramRoutes = require('./routes/instagram');
@@ -77,6 +79,7 @@ app.get('/', (req, res) => {
             shazam: '/api/shazam',
             facebook: '/api/facebook',
 	    xvieos: '/api/xvideos',
+	    vocalremover: 'api/vocalremover',
 	    validateKeys: '/api/validate/key',
 	    payments: '/api/payments',
 	    cpf: '/api/cpf',
@@ -107,6 +110,7 @@ function registerRoute(path, router, name) {
 console.log('\n🚀 ===== CARREGANDO ROTAS ===== 🚀\n');
 
 // ===== ROTAS DA API =====
+app.use('/api/vocalremove', vocalRemoveRoutes);
 registerRoute('/api/auth', authRoutes, 'Autenticação');
 registerRoute('/api/keys', keysRoutes, 'Gerenciamento de API Keys');
 registerRoute('/api/cpf', cpfRoutes, 'Validação CPF');

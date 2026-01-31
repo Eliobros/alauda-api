@@ -76,6 +76,7 @@ module.exports = {
         STATUS_MENTION: 250,        // 1 crédito
 	FACEBOOK_DOWNLOAD: 50,
 	CPF_CONSULTA: 50,	    // 50 de credito
+	VOCAL_REMOVE: 50,
         MPESA_VALIDATE: 10,        // 1 crédito
         EMOLA_VALIDATE: 10         // 1 crédito
     },

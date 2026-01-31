@@ -1,28 +1,46 @@
-# Node
+# Dependências
 node_modules/
-npm-debug.log
-yarn-error.log
 venv/
-# Env
+
+# Variáveis de ambiente
 .env
 .env.local
+.env.production
 
 # Logs
-logs/*.log
+logs/
+*.log
+npm-debug.log*
 
-# Database
-database/*.json
-
-# Python
-services/youtube/__pycache__/
-services/youtube/*.pyc
-services/youtube/venv/
+# Temporários
+temp/*
+!temp/.gitkeep
+*.mp3
+*.mp4
+*.wav
+*.ogg
+*.flac
 
 # OS
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
+*.swo
+
+# Testes
+teste.js
+teste02.js
+teste03.js
+createTestKey.js
+testSpotifyDL.js
+*-player-script.js
+musica-real.mp3
+test-audio.mp3
+
+# Build
+dist/
+build/

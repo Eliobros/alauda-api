@@ -1,0 +1,61 @@
+# fly.toml
+app = "alauda-api"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 25
+    soft_limit = 20
+
+[[services]]
+  internal_port = 3000
+  protocol = "tcp"
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [[services.tcp_checks]]
+    grace_period = "10s"
+    interval = "15s"
+    timeout = "2s"
+
+  [[services.http_checks]]
+    interval = "30s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/"
+    protocol = "http"
+    timeout = "5s"
+
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 2048
+
+[mounts]
+  source = "spleeter_cache"
+  destination = "/root/.cache/spleeter"
