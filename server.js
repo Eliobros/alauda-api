@@ -126,6 +126,8 @@ registerRoute('/api/validate', validateRoutes, 'Validação de API Keys');
 registerRoute('/api/shazam', shazamRoutes, 'Shazam Music Identifier');
 registerRoute('/api/payment', paymentRoutes, 'Payment System');
 //registerRoute('/api/dashboard', dashboardRoutes, 'Dashboard');
+const tinaRoutes = require('./routes/tina');
+app.use('/api/tina', tinaRoutes);
 registerRoute('/api/facebook', facebookRoutes, 'Facebook Downloader');
 app.use('/api/xvideos', xvideosRoutes);
 console.log(`\n✅ Total: ${loadedRoutes.length} rotas carregadas com sucesso!\n`);

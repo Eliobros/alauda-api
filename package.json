@@ -12,6 +12,7 @@
   "description": "",
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
+    "@google/generative-ai": "^0.24.1",
     "@xaviabot/fb-downloader": "^1.0.14",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
@@ -26,6 +27,7 @@
     "mercadopago": "^2.10.0",
     "mongoose": "^8.19.2",
     "multer": "^2.0.2",
+    "mysql2": "^3.17.1",
     "node-cron": "^4.2.1",
     "spdl-core": "^2.0.2",
     "spotify-web-api-node": "^5.0.2",
