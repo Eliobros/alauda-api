@@ -1,0 +1,250 @@
+navbar-image
+bashjavascriptphppython
+Search
+PaySuite API Documentation
+Payment Methods
+Webhooks
+Authenticating requests
+Error Handling
+Payment Requests
+Payout Requests
+Refunds
+View Postman collection
+View OpenAPI spec
+Documentation powered by Scribe ✍
+Last updated: February 28, 2026
+PaySuite API Documentation
+PaySuite enables secure payment processing through MPesa, Emola, and Credit/Debit Card Payments, with real-time transaction updates and detailed reports.
+
+Payment Methods
+Available payment methods for your customers:
+
+MPesa
+
+Mobile money payments
+Instant processing
+Requires valid MPesa number
+Emola
+
+Digital wallet payments
+Instant processing
+Requires valid Emola account
+Credit/Debit Card
+
+Processing time: 1-2 business days
+Requires valid card details
+Webhooks
+Get instant notifications for payment events.
+
+Setup
+Add your webhook URL in merchant settings
+Save your webhook secret securely
+Use the secret to validate webhooks
+Events
+payment.success
+Sent when payment succeeds.
+
+{
+  "event": "payment.success",
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "amount": 100.50,
+    "reference": "INV2024001",
+    "transaction": {
+      "id": "tr_123456",
+      "method": "mpesa",
+      "paid_at": "2024-02-10T10:15:00.000000Z"
+    }
+  },
+  "created_at": 1708235285,
+  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+payment.failed
+Sent when payment fails.
+
+{
+  "event": "payment.failed",
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "amount": 100.50,
+    "reference": "INV2024001",
+    "error": "Insufficient funds"
+  },
+  "created_at": 1708235285,
+  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+Security
+Verify webhook authenticity:
+
+<?php
+$payload = file_get_contents('php://input');
+$signature = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'];
+$secret = 'your_webhook_secret';
+
+$calculatedSignature = hash_hmac('sha256', $payload, $secret);
+
+if (hash_equals($signature, $calculatedSignature)) {
+    $data = json_decode($payload, true);
+    // Process the event
+}
+Headers
+Header	Description
+X-Webhook-Signature	Request signature
+X-Account-Id	Your merchant account ID
+Content-Type	application/json
+User-Agent	PaySuite-Webhook/1.0
+Best Practices
+Always verify signatures
+Process events once (check request_id)
+Respond within 5 seconds
+Implement retry handling
+Log events for debugging
+Test in sandbox before going live
+Authenticating requests
+Include your API token in all requests:
+
+curl -X POST "https://paysuite.tech/api/v1/payments" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json"
+Get your API token from the merchant dashboard under Settings > API Access.
+
+Error Handling
+All API responses use this format:
+
+{
+  "status": "error",
+  "message": "Invalid input"
+}
+Common error codes:
+
+400: Invalid request data
+401: Invalid API token
+402: Payment failed
+404: Resource not found
+422: Validation error
+429: Too many requests (rate limit exceeded)
+Rate limits:
+
+100 requests per minute per merchant
+Webhook retries: 5 attempts with exponential backoff
+Payment Requests
+APIs for managing payment requests
+
+Create Payment Request
+requires authentication
+
+Creates a new payment request in the system.
+
+Example request:
+Example response (201):
+
+
+{
+    "status": "success",
+    "data": {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "amount": 100.5,
+        "reference": "INV2024001",
+        "status": "pending",
+        "checkout_url": "https://paysuite.test/checkout/550e8400-e29b-41d4-a716-446655440000"
+    }
+}
+ 
+Example response (422):
+
+
+{
+    "status": "error",
+    "message": "Invalid input"
+}
+ 
+Request    Try it out ⚡   
+POST api/v1/payments
+
+Headers
+Authorization        
+Example: Bearer {YOUR_AUTH_KEY}
+
+Content-Type        
+Example: application/json
+
+Accept        
+Example: application/json
+
+Body Parameters
+amount   numeric     
+Payment amount in MZN. Example: 100.50
+
+method   string  optional    
+optional Payment method.
+
+Must be one of:
+credit_card
+mpesa
+emola
+reference   string     
+Unique payment reference (max: 50 characters). Example: INV2024001
+
+description   string  optional    
+optional Payment description (max: 255 characters). Example: Payment for invoice INV2024001
+
+return_url   string  optional    
+optional URL to redirect after payment completion. Example: https://example.com/success
+
+callback_url   string  optional    
+Must be a valid URL. Must not be greater than 255 characters. Example: http://ferry.com/corporis-excepturi-iusto-ipsam-in-eveniet-magnam
+
+Get Payment Request
+requires authentication
+
+Returns the details of a specific payment request.
+
+Example request:
+Example response (200):
+
+
+{
+    "status": "success",
+    "data": {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "amount": 100.5,
+        "reference": "INV2024001",
+        "status": "paid",
+        "transaction": {
+            "id": 1,
+            "status": "completed",
+            "transaction_id": "MPESA123456",
+            "paid_at": "2024-02-10T10:15:00.000000Z"
+        }
+    }
+}
+ 
+Example response (404):
+
+
+{
+    "status": "error",
+    "message": "Payment request not found."
+}
+ 
+Request    Try it out ⚡   
+GET api/v1/payments/{id}
+
+Headers
+Authorization        
+Example: Bearer {YOUR_AUTH_KEY}
+
+Content-Type        
+Example: application/json
+
+Accept        
+Example: application/json
+
+URL Parameters
+id   string     
+The ID of the payment. Example: veniam
+
+uuid   string     
+UUID of the payment request. Example: 550e8400-e29b-41d4-a716-446655440000
+
+Payout Requests

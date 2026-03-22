@@ -62,6 +62,15 @@ mongoose.connect(process.env.MONGODB_URI || dbConfig.uri, dbConfig.options)
     });
 
 // ===== ROTA RAIZ (Health Check) =====
+
+app.use('/api/payment/webhook', (req, res, next) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+        req.rawBody = data;
+        next();
+    });
+});
 app.get('/', (req, res) => {
     res.json({
         success: true,

@@ -1,15 +1,16 @@
-// ===== ROUTES/PAYMENT.JS - CORRIGIDO =====
+// ===== ROUTES/PAYMENT.JS =====
 // Payment Integration para Alauda API
-// Suporta: MercadoPago, M-Pesa, E-Mola
+// Suporta: MercadoPago, M-Pesa, E-Mola (via PaySuite)
 
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { MercadoPagoConfig, Preference, Payment: MPPayment } = require('mercadopago');
 const authenticateApiKey = require('../middleware/auth');
 const response = require('../utils/responseHandler');
 const constants = require('../config/constants');
 const Payment = require('../models/Payment');
-const User = require('../models/User'); // ✅ ADICIONAR ESTA LINHA!
+const User = require('../models/User');
 const paymentProcessor = require('../utils/paymentProcessor');
 
 // ===== CONFIGURAÇÕES =====
@@ -19,9 +20,11 @@ const mpClient = new MercadoPagoConfig({
     accessToken: process.env.MP_ACCESS_TOKEN || 'APP_USR-8802230897684987-041621-6921931c4f51569f86ef5f5a25196068-1779653557'
 });
 
-// PayMoz (M-Pesa e E-Mola)
-const PAYMOZ_API_KEY = process.env.PAYMOZ_API_KEY || 'sua_api_key_aqui';
-const PAYMOZ_API_URL = 'https://paymoz.tech/api/v1/pagamentos/processar/';
+// PaySuite (M-Pesa e E-Mola)
+const PAYSUITE_TOKEN = process.env.PAYSUITE_TOKEN || 'seu_token_aqui';
+const PAYSUITE_API_URL = 'https://paysuite.tech/api/v1/payments';
+const PAYSUITE_WEBHOOK_SECRET = process.env.PAYSUITE_WEBHOOK_SECRET || 'seu_webhook_secret';
+const PAYSUITE_CALLBACK_URL = process.env.PAYSUITE_CALLBACK_URL || 'https://alauda-api.topazioverse.com.br/api/payment/webhook/paysuite';
 
 // ===== FUNÇÕES MERCADOPAGO =====
 
@@ -101,66 +104,55 @@ async function getPaymentStatus(payment_id) {
     }
 }
 
-// ===== FUNÇÕES PAYMOZ (M-PESA E E-MOLA) =====
+// ===== FUNÇÕES PAYSUITE (M-PESA E E-MOLA) =====
 
-async function processPayMozPayment(metodo, data) {
+async function processPaySuitePayment(metodo, data) {
     try {
         const { valor, numero_celular, usuario_id } = data;
 
-        // Verifica método válido
         if (!['mpesa', 'emola'].includes(metodo)) {
             throw new Error('Método inválido. Use "mpesa" ou "emola"');
         }
 
+        const reference = `REF${Date.now()}`.substring(0, 50);
+
         const payload = {
-            metodo: metodo,
-            valor: parseFloat(valor).toFixed(2),
-            numero_celular: numero_celular
+            amount: parseFloat(valor),
+            method: metodo,
+            reference: reference,
+            description: `Pagamento via ${metodo.toUpperCase()} - usuário ${usuario_id}`,
+            callback_url: PAYSUITE_CALLBACK_URL
         };
 
-        console.log(`📤 Enviando requisição para PayMoz (${metodo.toUpperCase()}):`, payload);
+        console.log(`📤 Enviando requisição para PaySuite (${metodo.toUpperCase()}):`, payload);
 
-        const fetchResponse = await fetch(PAYMOZ_API_URL, {
+        const fetchResponse = await fetch(PAYSUITE_API_URL, {
             method: 'POST',
             headers: {
-                'Authorization': `ApiKey ${PAYMOZ_API_KEY}`,
-                'Content-Type': 'application/json'
+                'Authorization': `Bearer ${PAYSUITE_TOKEN}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
             body: JSON.stringify(payload)
         });
 
-        // Verifica se a resposta é JSON
-        const contentType = fetchResponse.headers.get('content-type');
-        let responseData;
+        const responseData = await fetchResponse.json();
+        console.log('📥 Resposta PaySuite:', responseData);
 
-        if (contentType && contentType.includes('application/json')) {
-            responseData = await fetchResponse.json();
-        } else {
-            const text = await fetchResponse.text();
-            console.error('⚠️ EMOLA retornou algo inesperado (não JSON):', text);
-            throw new Error('Erro EMOLA: a resposta não é JSON. Verifique URL, token ou API.');
+        if (responseData.status !== 'success') {
+            throw new Error(responseData.message || 'Erro ao processar pagamento');
         }
 
-        console.log('📥 Resposta PayMoz:', responseData);
-
-        // Verifica se a API indicou sucesso
-        if (!responseData.sucesso) {
-            throw new Error(responseData.mensagem || 'Erro ao processar pagamento');
-        }
-
-        // Retorna dados processados
         return {
             success: true,
             metodo: metodo.toUpperCase(),
             valor: valor,
             numero_celular: numero_celular,
             usuario_id: usuario_id,
-            transaction_id: responseData.dados?.output_TransactionID,
-            conversation_id: responseData.dados?.output_ConversationID,
-            third_party_reference: responseData.dados?.output_ThirdPartyReference,
-            response_code: responseData.dados?.output_ResponseCode,
-            response_desc: responseData.dados?.output_ResponseDesc,
-            mensagem: responseData.mensagem,
+            payment_id: responseData.data.id,
+            reference: responseData.data.reference,
+            status: responseData.data.status,
+            checkout_url: responseData.data.checkout_url,
             created_at: new Date().toISOString()
         };
 
@@ -185,12 +177,14 @@ router.get('/info', (req, res) => {
             {
                 name: 'M-Pesa',
                 methods: ['Mobile Money'],
-                region: 'Moçambique (Vodacom)'
+                region: 'Moçambique (Vodacom)',
+                gateway: 'PaySuite'
             },
             {
                 name: 'E-Mola',
                 methods: ['Mobile Money'],
-                region: 'Moçambique (Movitel)'
+                region: 'Moçambique (Movitel)',
+                gateway: 'PaySuite'
             }
         ],
         features: [
@@ -241,7 +235,6 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
     try {
         const { email, amount, description, usuario_id, back_urls, notification_url } = req.body;
 
-        // Validações básicas
         if (!email) {
             return response.validationError(res, [
                 { field: 'email', message: 'Email é obrigatório' }
@@ -265,31 +258,29 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
             ]);
         }
 
-        // ===== ✅ CORREÇÃO: Buscar usuário e pegar ObjectId =====
-        const userDoc = await User.findOne({ 
+        const userDoc = await User.findOne({
             $or: [
                 { email: usuario_id.toLowerCase().trim() },
                 { username: usuario_id.toLowerCase().trim() }
-            ] 
+            ]
         });
 
         if (!userDoc) {
             return response.validationError(res, [
-                { 
-                    field: 'usuario_id', 
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.' 
+                {
+                    field: 'usuario_id',
+                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.'
                 }
             ]);
         }
 
         const mongoUserId = userDoc._id.toString();
-        // ===== FIM DA CORREÇÃO =====
 
         const paymentData = await createPaymentPreference({
             email,
             amount,
             description,
-            usuario_id: mongoUserId, // ✅ Usa ObjectId aqui também
+            usuario_id: mongoUserId,
             back_urls,
             notification_url
         });
@@ -299,7 +290,7 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
         const payment = await Payment.createPayment({
             payment_id: paymentData.id,
             provider: 'mercadopago',
-            userId: mongoUserId, // ✅ AGORA USA ObjectId CORRETO!
+            userId: mongoUserId,
             apiKey: req.apiKeyData.key,
             email: email,
             amount: amount,
@@ -347,7 +338,6 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
     try {
         const { valor, numero_celular, usuario_id } = req.body;
 
-        // Validações básicas
         if (!valor || parseFloat(valor) < 1) {
             return response.validationError(res, [
                 { field: 'valor', message: 'Valor mínimo é 1.00 MZN' }
@@ -371,38 +361,36 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
             ]);
         }
 
-        // ===== ✅ CORREÇÃO: Buscar usuário e pegar ObjectId =====
-        const userDoc = await User.findOne({ 
+        const userDoc = await User.findOne({
             $or: [
                 { email: usuario_id.toLowerCase().trim() },
                 { username: usuario_id.toLowerCase().trim() }
-            ] 
+            ]
         });
 
         if (!userDoc) {
             return response.validationError(res, [
-                { 
-                    field: 'usuario_id', 
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.' 
+                {
+                    field: 'usuario_id',
+                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.'
                 }
             ]);
         }
 
         const mongoUserId = userDoc._id.toString();
-        // ===== FIM DA CORREÇÃO =====
 
-        const paymentData = await processPayMozPayment('mpesa', {
+        const paymentData = await processPaySuitePayment('mpesa', {
             valor,
             numero_celular,
-            usuario_id: mongoUserId // ✅ Passa ObjectId
+            usuario_id: mongoUserId
         });
 
         const credits = paymentProcessor.calculateCredits(valor, 'MZN');
 
         const payment = await Payment.createPayment({
-            payment_id: paymentData.transaction_id || `mpesa_${Date.now()}`,
+            payment_id: paymentData.payment_id || `mpesa_${Date.now()}`,
             provider: 'mpesa',
-            userId: mongoUserId, // ✅ AGORA USA ObjectId CORRETO!
+            userId: mongoUserId,
             apiKey: req.apiKeyData.key,
             phone: numero_celular,
             amount: valor,
@@ -410,13 +398,11 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
             credits_to_add: credits,
             ip_address: req.clientIP,
             user_agent: req.userAgent,
-            paymoz_data: {
-                transaction_id: paymentData.transaction_id,
-                conversation_id: paymentData.conversation_id,
-                third_party_reference: paymentData.third_party_reference,
-                response_code: paymentData.response_code,
-                response_desc: paymentData.response_desc,
-                numero_celular: numero_celular
+            paysuite_data: {
+                payment_id: paymentData.payment_id,
+                reference: paymentData.reference,
+                status: paymentData.status,
+                checkout_url: paymentData.checkout_url
             }
         });
 
@@ -424,13 +410,13 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
             case: 'mpesa_payment_created',
             usuario_id: mongoUserId,
             valor: valor,
-            transaction_id: paymentData.transaction_id,
+            payment_id: paymentData.payment_id,
             credits_to_add: credits
         });
 
         return response.success(res, {
             message: 'Pagamento M-Pesa processado com sucesso',
-            provider: 'M-Pesa (Vodacom)',
+            provider: 'M-Pesa (Vodacom) via PaySuite',
             payment: {
                 ...paymentData,
                 credits_to_receive: credits,
@@ -452,7 +438,6 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
     try {
         const { valor, numero_celular, usuario_id } = req.body;
 
-        // Validações básicas
         if (!valor || parseFloat(valor) < 1) {
             return response.validationError(res, [
                 { field: 'valor', message: 'Valor mínimo é 1.00 MZN' }
@@ -476,38 +461,36 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
             ]);
         }
 
-        // ===== ✅ CORREÇÃO: Buscar usuário e pegar ObjectId =====
-        const userDoc = await User.findOne({ 
+        const userDoc = await User.findOne({
             $or: [
                 { email: usuario_id.toLowerCase().trim() },
                 { username: usuario_id.toLowerCase().trim() }
-            ] 
+            ]
         });
 
         if (!userDoc) {
             return response.validationError(res, [
-                { 
-                    field: 'usuario_id', 
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.' 
+                {
+                    field: 'usuario_id',
+                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.'
                 }
             ]);
         }
 
         const mongoUserId = userDoc._id.toString();
-        // ===== FIM DA CORREÇÃO =====
 
-        const paymentData = await processPayMozPayment('emola', {
+        const paymentData = await processPaySuitePayment('emola', {
             valor,
             numero_celular,
-            usuario_id: mongoUserId // ✅ Passa ObjectId
+            usuario_id: mongoUserId
         });
 
         const credits = paymentProcessor.calculateCredits(valor, 'MZN');
 
         const payment = await Payment.createPayment({
-            payment_id: paymentData.transaction_id || `emola_${Date.now()}`,
+            payment_id: paymentData.payment_id || `emola_${Date.now()}`,
             provider: 'emola',
-            userId: mongoUserId, // ✅ AGORA USA ObjectId CORRETO!
+            userId: mongoUserId,
             apiKey: req.apiKeyData.key,
             phone: numero_celular,
             amount: valor,
@@ -515,13 +498,11 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
             credits_to_add: credits,
             ip_address: req.clientIP,
             user_agent: req.userAgent,
-            paymoz_data: {
-                transaction_id: paymentData.transaction_id,
-                conversation_id: paymentData.conversation_id,
-                third_party_reference: paymentData.third_party_reference,
-                response_code: paymentData.response_code,
-                response_desc: paymentData.response_desc,
-                numero_celular: numero_celular
+            paysuite_data: {
+                payment_id: paymentData.payment_id,
+                reference: paymentData.reference,
+                status: paymentData.status,
+                checkout_url: paymentData.checkout_url
             }
         });
 
@@ -529,13 +510,13 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
             case: 'emola_payment_created',
             usuario_id: mongoUserId,
             valor: valor,
-            transaction_id: paymentData.transaction_id,
+            payment_id: paymentData.payment_id,
             credits_to_add: credits
         });
 
         return response.success(res, {
             message: 'Pagamento E-Mola processado com sucesso',
-            provider: 'E-Mola (Movitel)',
+            provider: 'E-Mola (Movitel) via PaySuite',
             payment: {
                 ...paymentData,
                 credits_to_receive: credits,
@@ -588,6 +569,51 @@ router.get('/mercadopago/status/:payment_id', authenticateApiKey, response.async
     }
 }));
 
+// Consulta status de pagamento PaySuite
+router.get('/paysuite/status/:payment_id', authenticateApiKey, response.asyncHandler(async (req, res) => {
+    try {
+        const { payment_id } = req.params;
+
+        if (!payment_id) {
+            return response.validationError(res, [
+                { field: 'payment_id', message: 'ID do pagamento é obrigatório' }
+            ]);
+        }
+
+        const fetchResponse = await fetch(`${PAYSUITE_API_URL}/${payment_id}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${PAYSUITE_TOKEN}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        });
+
+        const responseData = await fetchResponse.json();
+
+        if (responseData.status !== 'success') {
+            return response.error(res, responseData.message || 'Pagamento não encontrado', 404);
+        }
+
+        await req.logSuccess({
+            case: 'paysuite_status_checked',
+            payment_id: payment_id,
+            status: responseData.data?.status
+        });
+
+        return response.success(res, {
+            provider: 'PaySuite',
+            payment: responseData.data,
+            credits_remaining: req.apiKeyData.credits
+        });
+
+    } catch (error) {
+        console.error('❌ Erro na rota payment/paysuite/status:', error);
+        await req.logError(500, error.message, { case: 'paysuite_status' });
+        return response.error(res, error.message, 500);
+    }
+}));
+
 // ===== WEBHOOKS =====
 
 router.post('/webhook/mercadopago', response.asyncHandler(async (req, res) => {
@@ -610,22 +636,39 @@ router.post('/webhook/mercadopago', response.asyncHandler(async (req, res) => {
     }
 }));
 
-router.post('/webhook/paymoz', response.asyncHandler(async (req, res) => {
+router.post('/webhook/paysuite', response.asyncHandler(async (req, res) => {
     try {
-        console.log('📩 Webhook PayMoz recebido:', req.body);
+        // Valida assinatura do webhook
+        const signature = req.headers['x-webhook-signature'];
+        
+	const payload = req.rawBody || JSON.stringify(req.body);
+        const calculatedSig = crypto
+            .createHmac('sha256', PAYSUITE_WEBHOOK_SECRET)
+            .update(payload)
+            .digest('hex');
 
-        const result = await paymentProcessor.processPayMozWebhook(req.body);
+        if (!signature || !crypto.timingSafeEqual(
+            Buffer.from(signature, 'hex'),
+            Buffer.from(calculatedSig, 'hex')
+        )) {
+            console.warn('⚠️ Assinatura inválida no webhook PaySuite');
+            return res.status(401).json({ error: 'Assinatura inválida' });
+        }
+
+        console.log('📩 Webhook PaySuite recebido:', req.body);
+
+        const result = await paymentProcessor.processPaySuiteWebhook(req.body);
 
         if (result.success) {
-            console.log('✅ Webhook processado:', result.message);
+            console.log('✅ Webhook PaySuite processado:', result.message);
         } else {
-            console.log('⚠️  Webhook não processado:', result.message);
+            console.log('⚠️  Webhook PaySuite não processado:', result.message);
         }
 
         return res.status(200).json({ received: true, ...result });
 
     } catch (error) {
-        console.error('❌ Erro no webhook PayMoz:', error);
+        console.error('❌ Erro no webhook PaySuite:', error);
         return res.status(500).json({ error: error.message });
     }
 }));
@@ -697,4 +740,3 @@ router.get('/status/:payment_id', authenticateApiKey, response.asyncHandler(asyn
 }));
 
 module.exports = router;
-
