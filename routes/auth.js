@@ -11,11 +11,32 @@ const authMiddleware = require('../middleware/authMiddleware');
 const JWT_SECRET = process.env.JWT_SECRET || 'alauda_secret_key_2024';
 const JWT_EXPIRES = '30d'; // Token válido por 30 dias
 
+const rateLimit = require('express-rate-limit');
+
+// Rate limit específico pro registro
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 3, // máx 3 registros por IP
+  message: {
+    success: false,
+    error: 'Muitas tentativas de registro. Tente novamente em 1 hora.'
+  }
+});
+
+// Domínios de email temporário bloqueados
+const blockedDomains = [
+  'tempmail.com', 'guerrillamail.com', 'mailinator.com',
+  '10minutemail.com', 'yopmail.com', 'throwam.com',
+  'trashmail.com', 'fakeinbox.com', 'sharklasers.com',
+  'guerrillamailblock.com', 'grr.la', 'spam4.me'
+];
+
+
 /**
  * POST /api/auth/register
  * Registra novo usuário
  */
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
     try {
         const { name, email, password, phone } = req.body;
 
@@ -33,6 +54,15 @@ router.post('/register', async (req, res) => {
                 error: 'Senha deve ter pelo menos 6 caracteres'
             });
         }
+
+	// Bloqueia emails temporários
+const domain = email.split('@')[1]?.toLowerCase();
+if (blockedDomains.includes(domain)) {
+  return res.status(400).json({
+    success: false,
+    error: 'Emails temporários não são permitidos'
+  });
+}
 
         // Verifica se email já existe
         const existingUser = await User.findOne({ email: email.toLowerCase() });
