@@ -1,7 +1,7 @@
 // ===== ROUTES/PAYMENT.JS =====
 // Payment Integration para Alauda API
 // Suporta: MercadoPago, M-Pesa, E-Mola (via PaySuite)
-
+const mpesaDirect = require('../utils/mpesa')
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
@@ -12,7 +12,7 @@ const constants = require('../config/constants');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const paymentProcessor = require('../utils/paymentProcessor');
-
+const mongoose = require('mongoose')
 // ===== CONFIGURAÇÕES =====
 
 // MercadoPago
@@ -24,7 +24,179 @@ const mpClient = new MercadoPagoConfig({
 const PAYSUITE_TOKEN = process.env.PAYSUITE_TOKEN || 'seu_token_aqui';
 const PAYSUITE_API_URL = 'https://paysuite.tech/api/v1/payments';
 const PAYSUITE_WEBHOOK_SECRET = process.env.PAYSUITE_WEBHOOK_SECRET || 'seu_webhook_secret';
-const PAYSUITE_CALLBACK_URL = process.env.PAYSUITE_CALLBACK_URL || 'https://alauda-api.topazioverse.com.br/api/payment/webhook/paysuite';
+const PAYSUITE_CALLBACK_URL = process.env.PAYSUITE_CALLBACK_URL || 'https://alauda-api.mozhost.shop/api/payment/webhook/paysuite';
+
+
+// ===== M-PESA DIRETO (sem PaySuite) =====
+
+router.post('/mpesa/direct', authenticateApiKey, response.asyncHandler(async (req, res) => {
+  console.log('📦 Body recebido:', JSON.stringify(req.body))
+  try {
+    const { valor, numero_celular, usuario_id } = req.body
+
+    if (!valor || parseFloat(valor) < 1) {
+      return response.validationError(res, [
+        { field: 'valor', message: 'Valor mínimo é 1.00 MZN' }
+      ])
+    }
+    if (!numero_celular) {
+      return response.validationError(res, [
+        { field: 'numero_celular', message: 'Número obrigatório' }
+      ])
+    }
+
+    const phoneRegex = /^(84|85)\d{7}$/
+    if (!phoneRegex.test(numero_celular)) {
+      return response.validationError(res, [
+        { field: 'numero_celular', message: 'Número M-Pesa inválido. Use: 84xxxxxxx ou 85xxxxxxx' }
+      ])
+    }
+
+    const mongoUserId = usuario_id.toString().trim()
+
+    const transactionRef = `T${Date.now()}`
+    const thirdPartyRef = `REF${Date.now()}`
+
+    const mpesaData = await mpesaDirect.c2b({
+      amount: valor,
+      msisdn: numero_celular,
+      transactionReference: transactionRef,
+      thirdPartyReference: thirdPartyRef
+    })
+    
+    console.log('📦 C2B completo:', JSON.stringify(mpesaData, null, 2))
+
+    const credits = paymentProcessor.calculateCredits(valor, 'MZN')
+
+    const payment = await Payment.createPayment({
+      payment_id: transactionRef,
+      provider: 'mpesa_direct',
+      userId: mongoUserId,
+      apiKey: req.apiKeyData.key,
+      phone: numero_celular,
+      amount: valor,
+      currency: 'MZN',
+      credits_to_add: credits,
+      ip_address: req.clientIP,
+      user_agent: req.userAgent,
+      mpesa_data: {
+        transaction_reference: transactionRef,
+        third_party_reference: thirdPartyRef,
+        response: mpesaData
+      }
+    })
+
+    return response.success(res, {
+      message: 'Pedido M-Pesa enviado! Confirma o PIN no teu telemóvel.',
+      provider: 'M-Pesa Direto (Vodacom)',
+      payment: {
+        transaction_reference: transactionRef,
+        third_party_reference: thirdPartyRef,
+        credits_to_receive: credits,
+        payment_db_id: payment._id,
+        mpesa_response: mpesaData
+      }
+    })
+
+  } catch (error) {
+    console.error('❌ Erro M-Pesa direto:', error)
+    return response.error(res, error.message, 500)
+  }
+}))
+
+
+router.get('/mpesa/direct/status/:ref', authenticateApiKey, response.asyncHandler(async (req, res) => {
+  try {
+
+    const payment = await Payment.findOne({
+      'mpesa_data.transaction_reference': req.params.ref
+    })
+
+    if (!payment) {
+      return response.error(res, 'Pagamento não encontrado', 404)
+    }
+
+    const data = await mpesaDirect.queryStatus({
+      queryReference: payment.mpesa_data.transaction_reference,
+      thirdPartyReference: payment.mpesa_data.third_party_reference // ← REF correto!
+    })
+
+    return response.success(res, { provider: 'M-Pesa Direto', data })
+  } catch (error) {
+    return response.error(res, error.message, 500)
+  }
+}))
+
+router.get('/mpesa/check/:ref', authenticateApiKey, response.asyncHandler(async (req, res) => {
+  try {
+    const payment = await Payment.findOne({
+      'mpesa_data.transaction_reference': req.params.ref
+    })
+
+    if (!payment) {
+      return response.error(res, 'Pagamento não encontrado', 404)
+    }
+
+    return response.success(res, { 
+      status: payment.status,
+      ref: req.params.ref
+    })
+
+  } catch (error) {
+    return response.error(res, error.message, 500)
+  }
+}))
+
+// Webhook callback M-Pesa direto
+router.post('/webhook/mpesa', response.asyncHandler(async (req, res) => {
+  console.log('📩 Callback completo:', JSON.stringify(req.body, null, 2)) // ← AQUI
+
+  try {
+    console.log('📩 Callback M-Pesa recebido:', JSON.stringify(req.body))
+
+    const {
+      input_TransactionStatus,
+      input_TransactionID,
+      input_ThirdPartyReference,
+      input_Amount,
+      input_CustomerMSISDN
+    } = req.body
+
+    if (input_TransactionStatus === 'Completed') {
+  const payment = await Payment.findOne({
+    'mpesa_data.third_party_reference': input_ThirdPartyReference
+  })
+
+  if (payment && payment.status === 'pending') {
+    // Adiciona isso — chama o MozHost
+    await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
+      method: 'POST',
+      headers: {
+        'x-internal-key': process.env.INTERNAL_SECRET_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        userId: payment.userId,
+        coins: payment.credits_to_add
+      })
+    })
+
+    payment.status = 'completed'
+    payment.mpesa_data.transaction_id = input_TransactionID
+    await payment.save()
+
+    console.log(`✅ Pagamento confirmado e coins creditados: ${input_Amount}MZN`)
+  }
+}
+
+    // M-Pesa sempre precisa de 200
+    return res.status(200).json({ success: true })
+
+  } catch (error) {
+    console.error('❌ Erro no webhook M-Pesa:', error)
+    return res.status(200).json({ success: false })
+  }
+}))
 
 // ===== FUNÇÕES MERCADOPAGO =====
 
@@ -38,7 +210,7 @@ async function createPaymentPreference(data) {
             body: {
                 items: [
                     {
-                        title: description || `Compra de ${amount} TPV`,
+                        title: description || `Compra de ${amount} Coins`,
                         unit_price: parseFloat(amount),
                         quantity: 1,
                     }
@@ -121,7 +293,8 @@ async function processPaySuitePayment(metodo, data) {
             method: metodo,
             reference: reference,
             description: `Pagamento via ${metodo.toUpperCase()} - usuário ${usuario_id}`,
-            callback_url: PAYSUITE_CALLBACK_URL
+            callback_url: PAYSUITE_CALLBACK_URL,
+            return_url: `${process.env.MOZHOST_URL}/dashboard?payment=success`
         };
 
         console.log(`📤 Enviando requisição para PaySuite (${metodo.toUpperCase()}):`, payload);
@@ -258,23 +431,9 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
             ]);
         }
 
-        const userDoc = await User.findOne({
-            $or: [
-                { email: usuario_id.toLowerCase().trim() },
-                { username: usuario_id.toLowerCase().trim() }
-            ]
-        });
+        
 
-        if (!userDoc) {
-            return response.validationError(res, [
-                {
-                    field: 'usuario_id',
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.'
-                }
-            ]);
-        }
-
-        const mongoUserId = userDoc._id.toString();
+        const mongoUserId = usuario_id.toString().trim()
 
         const paymentData = await createPaymentPreference({
             email,
@@ -361,23 +520,9 @@ router.post('/mpesa', authenticateApiKey, response.asyncHandler(async (req, res)
             ]);
         }
 
-        const userDoc = await User.findOne({
-            $or: [
-                { email: usuario_id.toLowerCase().trim() },
-                { username: usuario_id.toLowerCase().trim() }
-            ]
-        });
+        const mongoUserId = usuario_id.toString().trim()
 
-        if (!userDoc) {
-            return response.validationError(res, [
-                {
-                    field: 'usuario_id',
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.'
-                }
-            ]);
-        }
-
-        const mongoUserId = userDoc._id.toString();
+        
 
         const paymentData = await processPaySuitePayment('mpesa', {
             valor,
@@ -461,23 +606,9 @@ router.post('/emola', authenticateApiKey, response.asyncHandler(async (req, res)
             ]);
         }
 
-        const userDoc = await User.findOne({
-            $or: [
-                { email: usuario_id.toLowerCase().trim() },
-                { username: usuario_id.toLowerCase().trim() }
-            ]
-        });
+        
 
-        if (!userDoc) {
-            return response.validationError(res, [
-                {
-                    field: 'usuario_id',
-                    message: 'Usuário não encontrado. Use seu email ou username cadastrado.'
-                }
-            ]);
-        }
-
-        const mongoUserId = userDoc._id.toString();
+        const mongoUserId = usuario_id.toString().trim()
 
         const paymentData = await processPaySuitePayment('emola', {
             valor,

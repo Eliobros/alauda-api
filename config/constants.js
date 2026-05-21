@@ -78,6 +78,9 @@ module.exports = {
 	CPF_CONSULTA: 50,	    // 50 de credito
 	VOCAL_REMOVE: 50,
         MPESA_VALIDATE: 10,        // 1 crédito
+	CURRENCY: 20,
+	WEATHER: 30,
+	PHOTO_SEARCH: 30,
         EMOLA_VALIDATE: 10         // 1 crédito
     },
 

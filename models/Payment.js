@@ -15,7 +15,7 @@ const paymentSchema = new mongoose.Schema({
     // ===== PROVEDOR =====
     provider: {
         type: String,
-        enum: ['mercadopago', 'mpesa', 'emola'],
+        enum: ['mercadopago', 'mpesa', 'emola', 'mpesa_direct'],
         required: true,
         lowercase: true,
         index: true
@@ -63,7 +63,7 @@ const paymentSchema = new mongoose.Schema({
     // ===== STATUS =====
     status: {
         type: String,
-        enum: ['pending', 'approved', 'rejected', 'cancelled', 'refunded', 'in_process'],
+        enum: ['pending', 'approved', 'rejected', 'cancelled', 'refunded', 'in_process', 'completed'],
         default: 'pending',
         index: true
     },
@@ -85,15 +85,13 @@ const paymentSchema = new mongoose.Schema({
         payment_type_id: String
     },
 
-    // M-Pesa / E-Mola (PayMoz)
-    paymoz_data: {
-        transaction_id: String,
-        conversation_id: String,
-        third_party_reference: String,
-        response_code: String,
-        response_desc: String,
-        numero_celular: String
-    },
+    // M-Pesa
+    mpesa_data: {
+    transaction_reference: String,
+    third_party_reference: String,
+    transaction_id: String,
+    response: mongoose.Schema.Types.Mixed
+},
 
     // ===== WEBHOOK & TRACKING =====
     webhook_received: {
@@ -301,7 +299,7 @@ paymentSchema.statics.createPayment = async function(data) {
         ip_address: data.ip_address,
         user_agent: data.user_agent,
         mercadopago_data: data.mercadopago_data,
-        paymoz_data: data.paymoz_data,
+        mpesa_data: data.mpesa_data,
         metadata: data.metadata
     });
 

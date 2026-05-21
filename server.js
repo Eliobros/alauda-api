@@ -63,19 +63,11 @@ mongoose.connect(process.env.MONGODB_URI || dbConfig.uri, dbConfig.options)
 
 // ===== ROTA RAIZ (Health Check) =====
 
-app.use('/api/payment/webhook', (req, res, next) => {
-    let data = '';
-    req.on('data', chunk => { data += chunk; });
-    req.on('end', () => {
-        req.rawBody = data;
-        next();
-    });
-});
 app.get('/', (req, res) => {
     res.json({
         success: true,
         message: '⚡ Alauda API - Online',
-        version: '1.0.0',
+        version: '1.2.1',
         author: 'Zëüs Lykraios 💎',
         endpoints: {
             lyrics: '/api/lyrics',
@@ -88,12 +80,15 @@ app.get('/', (req, res) => {
             shazam: '/api/shazam',
             facebook: '/api/facebook',
 	    xvieos: '/api/xvideos',
-	    vocalremover: 'api/vocalremover',
+	    vocalremover: '/api/vocalremover',
 	    validateKeys: '/api/validate/key',
 	    payments: '/api/payments',
 	    cpf: '/api/cpf',
+	    weather: '/api/weather',
+	    photos: '/api/photos',
+	    currency: '/api/currency'
         },
-        docs: 'https://docs.alauda.api/v1'
+        docs: 'https://docs.alauda-api/v1'
     });
 });
 
@@ -139,6 +134,9 @@ const tinaRoutes = require('./routes/tina');
 app.use('/api/tina', tinaRoutes);
 registerRoute('/api/facebook', facebookRoutes, 'Facebook Downloader');
 app.use('/api/xvideos', xvideosRoutes);
+app.use('/api/photos', require('./routes/photos'))
+app.use('/api/weather', require('./routes/weather'))
+app.use('/api/currency', require('./routes/currency'))
 console.log(`\n✅ Total: ${loadedRoutes.length} rotas carregadas com sucesso!\n`);
 
 // ===== ROTA 404 =====

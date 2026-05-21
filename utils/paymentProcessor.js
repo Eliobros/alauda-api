@@ -133,6 +133,74 @@ async function processPayMozWebhook(webhookData) {
     }
 }
 
+async function processPaySuiteWebhook(webhookData) {
+    try {
+        const { event, data, request_id } = webhookData;
+
+        // Evita processar duas vezes
+        const existing = await Payment.findOne({ 
+            'paysuite_data.request_id': request_id 
+        });
+        if (existing?.status === 'completed') {
+            return { success: true, message: 'Já processado' };
+        }
+
+        if (event === 'payment.success') {
+            const payment = await Payment.findOne({
+                'paysuite_data.payment_id': data.id
+            });
+
+            if (!payment) {
+                return { success: false, message: 'Pagamento não encontrado' };
+            }
+
+            // Credita coins no MozHost
+            await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
+                method: 'POST',
+                headers: {
+                    'x-internal-key': process.env.INTERNAL_SECRET_KEY,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId: payment.userId,
+                    coins: payment.credits_to_add
+                })
+            });
+
+            payment.status = 'completed';
+            payment.paysuite_data.request_id = request_id;
+            await payment.save();
+
+            console.log(`💰 Coins creditados via Paysuite!`);
+            console.log(`   Payment ID: ${data.id}`);
+            console.log(`   Usuário: ${payment.userId}`);
+            console.log(`   Coins: ${payment.credits_to_add}`);
+
+            return { success: true, message: 'Pagamento processado e coins creditados' };
+        }
+
+        if (event === 'payment.failed') {
+            const payment = await Payment.findOne({
+                'paysuite_data.payment_id': data.id
+            });
+
+            if (payment) {
+                payment.status = 'failed';
+                payment.paysuite_data.error = data.error;
+                await payment.save();
+            }
+
+            return { success: true, message: 'Pagamento marcado como falhado' };
+        }
+
+        return { success: false, message: `Evento desconhecido: ${event}` };
+
+    } catch (error) {
+        console.error('❌ Erro ao processar webhook Paysuite:', error);
+        throw error;
+    }
+}
+
 /**
  * Processa pagamentos pendentes (cron job)
  * Útil para processar pagamentos que o webhook não chegou
@@ -202,6 +270,7 @@ async function expireOldPayments() {
 module.exports = {
     calculateCredits,
     processMercadoPagoWebhook,
+    processPaySuiteWebhook,
     processPayMozWebhook,
     processPendingPayments,
     expireOldPayments
