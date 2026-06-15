@@ -1,7 +1,7 @@
 # Dependências
 node_modules/
 venv/
-
+.mozhostignore
 # Variáveis de ambiente
 .env
 .env.local
