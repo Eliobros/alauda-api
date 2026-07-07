@@ -267,11 +267,107 @@ async function expireOldPayments() {
     }
 }
 
+const DEBITOPAY_API_URL = 'https://gyqoaningqhurhvdugne.supabase.co/functions/v1/payment-orchestrator';
+const DEBITOPAY_API_KEY = process.env.DEBITOPAY_API_KEY || 'sk_live_xxx';
+
+async function checkDebitoPayStatus(paymentId) {
+    const response = await fetch(DEBITOPAY_API_URL, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${DEBITOPAY_API_KEY}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            action: 'check-status',
+            payment_id: paymentId
+        })
+    });
+    return response.json();
+}
+
+async function processPendingDebitoPayPayments() {
+    try {
+        // Pega pagamentos Débito Pay presos há mais de 20s (dá tempo do webhook chegar primeiro)
+        const pendentes = await Payment.find({
+            status: { $nin: ['completed', 'failed', 'refunded', 'chargeback', 'cancelled'] },
+            $or: [
+                { provider: { $in: ['mpesa', 'emola', 'mkesh', 'visa_mastercard'] } },
+                { provider: { $regex: /^mpesa_parceiro_/ } }
+            ],
+            'debitopay_data.payment_id': { $exists: true, $ne: null },
+            createdAt: { $lte: new Date(Date.now() - 20 * 1000) }
+        });
+
+        console.log(`🔄 [DébitoPay Fallback] Verificando ${pendentes.length} pagamentos pendentes...`);
+
+        let credited = 0;
+        let failed = 0;
+
+        for (const payment of pendentes) {
+            try {
+                const result = await checkDebitoPayStatus(payment.debitopay_data.payment_id);
+
+                if (!result.success) continue;
+
+                const status = result.payment.status;
+                const isParceiro = payment.provider.startsWith('mpesa_parceiro_');
+
+                if (status === 'success' && payment.status !== 'completed') {
+                    // Só credita coins no MozHost se NÃO for pagamento de parceiro
+                    // (parceiro já recebe direto na wallet dele via split da Débito Pay)
+                    if (!isParceiro) {
+                        await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
+                            method: 'POST',
+                            headers: {
+                                'x-internal-key': process.env.INTERNAL_SECRET_KEY,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                userId: payment.userId,
+                                coins: payment.credits_to_add,
+                                externalPaymentId: payment.payment_id
+                            })
+                        });
+                    }
+
+                    payment.status = 'completed';
+                    payment.debitopay_data.reference = result.payment.provider_reference;
+                    payment.debitopay_data.paid_at = new Date();
+                    await payment.save();
+
+                    console.log(
+                        isParceiro
+                            ? `✅ [DébitoPay Fallback] Pagamento de parceiro ${payment.payment_id} confirmado (${payment.provider}) — sem crédito de coins`
+                            : `✅ [DébitoPay Fallback] Pagamento ${payment.payment_id} creditado via consulta de status (${payment.credits_to_add} coins, user ${payment.userId})`
+                    );
+                    credited++;
+
+                } else if (status === 'failed' || status === 'expired') {
+                    payment.status = status;
+                    await payment.save();
+                    console.log(`❌ [DébitoPay Fallback] Pagamento ${payment.payment_id} marcado como ${status}`);
+                }
+
+            } catch (err) {
+                failed++;
+                console.error(`❌ [DébitoPay Fallback] Erro ao consultar ${payment.payment_id}:`, err.message);
+            }
+        }
+
+        return { total: pendentes.length, credited, failed };
+
+    } catch (error) {
+        console.error('❌ Erro no fallback de pagamentos Débito Pay:', error);
+        throw error;
+    }
+}
+
 module.exports = {
     calculateCredits,
     processMercadoPagoWebhook,
     processPaySuiteWebhook,
     processPayMozWebhook,
     processPendingPayments,
+    processPendingDebitoPayPayments,
     expireOldPayments
 };

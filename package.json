@@ -30,6 +30,7 @@
     "multer": "^2.0.2",
     "mysql2": "^3.17.1",
     "node-cron": "^4.2.1",
+    "pdfkit": "^0.19.1",
     "spdl-core": "^2.0.2",
     "spotify-web-api-node": "^5.0.2",
     "spotifydl-core": "^0.2.0"

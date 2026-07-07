@@ -15,7 +15,9 @@ const paymentSchema = new mongoose.Schema({
     // ===== PROVEDOR =====
     provider: {
         type: String,
-        enum: ['mercadopago', 'mpesa', 'emola', 'mpesa_direct'],
+        enum: ['mercadopago', 'mpesa', 'emola', 'mkesh', 'mpesa_direct', 'visa_mastercard', 'mpesa_parceiro_felio',
+          'mpesa_parceiro_helio'
+        ],
         required: true,
         lowercase: true,
         index: true
@@ -91,6 +93,14 @@ const paymentSchema = new mongoose.Schema({
     third_party_reference: String,
     transaction_id: String,
     response: mongoose.Schema.Types.Mixed
+},
+
+debitopay_data: {
+    payment_id: String,
+    source_id: String,
+    status: String,
+    reference: String,
+    paid_at: mongoose.Schema.Types.Mixed
 },
 
     // ===== WEBHOOK & TRACKING =====
@@ -300,6 +310,7 @@ paymentSchema.statics.createPayment = async function(data) {
         user_agent: data.user_agent,
         mercadopago_data: data.mercadopago_data,
         mpesa_data: data.mpesa_data,
+	debitopay_data: data.debitopay_data,
         metadata: data.metadata
     });
 

@@ -10,7 +10,21 @@ const paymentProcessor = require('../utils/paymentProcessor');
 function startPaymentCronJobs() {
     console.log('🕐 Iniciando cron jobs de pagamento...');
 
-    // ===== JOB 1: Processar pagamentos pendentes =====
+    // ===== JOB 1: Processar pagamentos pendentes ====
+
+// ===== JOB 1.5: Fallback Débito Pay (consulta status direto, sem depender do webhook) =====
+    // Executa a cada 1 minuto — mais frequente pois é o fallback ativo enquanto o
+    // webhook da Débito Pay está com problema de assinatura (ver ticket de suporte)
+    cron.schedule('* * * * *', async () => {
+        try {
+            const result = await paymentProcessor.processPendingDebitoPayPayments();
+            if (result.total > 0) {
+                console.log(`✅ [CRON DébitoPay] Verificados: ${result.total} | Creditados: ${result.credited} | Falhas: ${result.failed}`);
+            }
+        } catch (error) {
+            console.error('❌ [CRON DébitoPay] Erro:', error.message);
+        }
+    });
     // Executa a cada 5 minutos
     cron.schedule('*/5 * * * *', async () => {
         try {

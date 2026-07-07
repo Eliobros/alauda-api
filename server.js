@@ -45,7 +45,15 @@ const PORT = process.env.PORT || 3000;
 // ===== MIDDLEWARES GLOBAIS =====
 app.use(helmet()); // Segurança
 app.use(cors()); // CORS
-app.use(express.json()); // Parse JSON
+
+
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+}));
+
+
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded
 app.use(logger); // Log de todas as requests
 
