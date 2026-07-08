@@ -49,10 +49,45 @@ const DEBITOPAY_WALLETS = {
     }
 };
 
-const DEBITOPAY_WALLET_PLATFORM = process.env.DEBITOPAY_WALLET_PLATFORM || 'PREENCHER_WALLET_PLATAFORMA';
+const DEBITOPAY_WALLET_PLATFORM = DEBITOPAY_WALLETS.mpesa.wallet_code; // = '07503' (Mozhost-Mpesa)
 
 const DEBITOPAY_FEE_PERCENTAGE = 7;
 
+
+// Helper de debug: roda uma vez no boot (só em dev) e imprime os HMACs esperados
+// pra um body de teste. Use este output pra comparar com qualquer ferramenta
+// externa (Postman, Insomnia, openssl, etc.) ao validar a chave da Débito Pay
+// lado a lado com o que o servidor realmente produz. Remova depois de debugar.
+function debugPrintDebitoPaySignature() {
+    try {
+        const secret = (process.env.DEBITOPAY_WEBHOOK_SECRET || '').trim();
+        if (!secret || secret === 'seu_webhook_secret') {
+            console.log('ℹ️ [DebitoPay] Webhook secret ainda não configurado — self-test de assinatura pulado.');
+            return;
+        }
+        // Aviso amigável: secret NÃO parece hex puro (UUID com hífens, base64, etc).
+        // A branch HEX vai produzir nonsense mas a UTF-8 ainda funciona — avisa
+        // o dev pra não ficar achando que tá bugado.
+        const looksLikeHex = /^[0-9a-fA-F]+$/.test(secret) && secret.length % 2 === 0;
+        if (!looksLikeHex) {
+            console.warn('ℹ️ [DebitoPay] Secret NÃO é hex puro (hífens/letras fora de a-f/etc) — vai funcionar na branch UTF-8; a branch HEX vai dar resultado sem sentido. Isso é OK se a Débito Pay também tratar como UTF-8.');
+        }
+        const sample = '{"event":"payment.completed","id":"test"}';
+        const sigHex  = crypto.createHmac('sha256', Buffer.from(secret, 'hex')).update(sample).digest('hex');
+        const sigUtf8 = crypto.createHmac('sha256', Buffer.from(secret, 'utf-8')).update(sample).digest('hex');
+        console.log('🔐 [DebitoPay] Webhook self-test — body de amostra: ' + sample);
+        console.log('    HMAC(secret as HEX bytes):  ', sigHex);
+        console.log('    HMAC(secret as UTF-8 str): ', sigUtf8);
+        console.log('    Compare qualquer um dos dois acima com a ferramenta externa.');
+    } catch (err) {
+        console.warn('⚠️ [DebitoPay] Falha no self-test de assinatura:', err.message);
+    }
+}
+// NODE_ENV case-insensitive (alguns PaaS setam "Production" com cap inconsistente)
+const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
+if (nodeEnv !== 'production' && nodeEnv !== 'prod') {
+    debugPrintDebitoPaySignature();
+}
 
 const DEBITOPAY_SPLIT_PARTNERS = {
     felio: {
@@ -933,113 +968,170 @@ router.post('/webhook/mercadopago', response.asyncHandler(async (req, res) => {
 }));
 
 // Webhook Débito Pay — confirma pagamento e credita as coins do usuário.
-// IMPORTANTE: confirma com a doc/suporte da Débito Pay qual header eles usam
-// para assinar o payload (abaixo assume 'x-debitopay-signature', ajusta se for diferente).
-// Webhook Débito Pay — confirma pagamento e credita as coins do usuário.
-// Formato real documentado:
-// { "event": "payment.completed", "data": { "payment_id", "merchant_id", "wallet_code",
-//   "amount", "currency", "method", "reference", "paid_at" }, "timestamp": "..." }
-// Header: X-Webhook-Signature (HMAC-SHA256 do raw body, SEM prefixo "sha256=")
-// Best practices exigidas pela Débito Pay: responder 200 em <5s, validar assinatura sempre,
-// tratar cada payment_id de forma idempotente (evento pode chegar mais de uma vez).
+// Header: X-Webhook-Signature (HMAC-SHA256 do RAW body, com ou sem prefixo "sha256=").
+// O secret é interpretado como UTF-8 OU como hex bytes (string de 64 chars hex = 32
+// bytes); o código tenta ambos. Resposta 200 em <5s; idempotência por payment_id.
+// IMPORTANTE: nunca aplique .trim() no body — o HMAC precisa dos bytes EXATOS.
+//
+// Shape real do body (mensagem observada em produção, ver erro.txt):
+//   {
+//     "event_id":     "mp-<uuid>-success",        // <- ID único da entrega (idempotência)
+//     "event":        "payment.completed",        // OU payment.failed / payment.refunded / payment.chargeback
+//     "delivery_id":  "<uuid>",
+//     "created_at":   "ISO-8601",
+//     "id":           "<uuid-do-pagamento>",      // <- payment_id (top-level E em `data.id`)
+//     "phone":        "258XXXXXXXXX",
+//     "amount":       <number>,
+//     "method":       "mpesa" | "emola" | "mkesh" | "card",
+//     "status":       "completed" | "failed",
+//     "currency":     "MZN",
+//     "reference":    "<op-ref>",
+//     "provider_reference": "<op-ref>",
+//     "data": { ... mesmos campos ... }
+//   }
 router.post('/webhook/debitopay', response.asyncHandler(async (req, res) => {
-  console.log('🔬 rawBody length:', req.rawBody?.length);
-console.log('🔬 rawBody primeiros 200 chars:', req.rawBody?.toString().slice(0, 200));
-  console.log('🔥🔥🔥 WEBHOOK DEBITOPAY CHEGOU 🔥🔥🔥');   // ← ADICIONA ESSA LINHA AQUI
-    console.log('RAW BODY:', req.rawBody?.toString());        // ← E ESSA
-    console.log('SIGNATURE HEADER:', req.headers['x-webhook-signature']); //
-    console.log('🔍 SECRET length:', DEBITOPAY_WEBHOOK_SECRET?.length);
-console.log('🔍 SECRET raw (JSON):', JSON.stringify(DEBITOPAY_WEBHOOK_SECRET));
+    const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
+    const verboseLogging = nodeEnv !== 'production' && nodeEnv !== 'prod';
+
+    console.log('🔥 WEBHOOK DEBITOPAY CHEGOU 🔥');
+
     try {
-        const rawSignature = req.headers['x-webhook-signature'] || '';
-const signature = rawSignature.startsWith('sha256=') ? rawSignature.slice(7) : rawSignature;
-        const payload = req.rawBody || JSON.stringify(req.body);
+        // 1. Captura os bytes EXATOS do body (Buffer cru, sem trim/parse).
+        const rawBodyBuffer = Buffer.isBuffer(req.rawBody)
+            ? req.rawBody
+            : Buffer.from(typeof req.rawBody === 'string' ? req.rawBody : (req.rawBody || ''));
+
+        if (!rawBodyBuffer || rawBodyBuffer.length === 0) {
+            console.warn('⚠️ Webhook Débito Pay sem raw body — rejeitado.');
+            return res.status(400).json({ error: 'Body ausente' });
+        }
+
+        // 2. Extrai assinatura do header. Express normaliza header names para
+        //    lowercase, mas checamos 'x-webhook-signature' E 'x-debitopay-signature'
+        //    só pra cobrir o caso de a Débito Pay ter mudado o nome sem avisar.
+        const rawSignature =
+            req.headers['x-webhook-signature'] ||
+            req.headers['x-debitopay-signature'] ||
+            '';
+        const signature = (rawSignature.startsWith('sha256=') ? rawSignature.slice(7) : rawSignature)
+            .trim()
+            .toLowerCase();
 
         if (!signature) {
-            console.warn('⚠️ Webhook Débito Pay recebido sem header X-Webhook-Signature — rejeitado.');
+            console.warn('⚠️ Webhook Débito Pay sem header de assinatura — rejeitado.');
             return res.status(401).json({ error: 'Assinatura ausente' });
         }
 
-        const calculatedSig = crypto
-            .createHmac('sha256', DEBITOPAY_WEBHOOK_SECRET)
-            .update(payload)
-            .digest('hex');
-            
-            console.log('🔑 SECRET USADO (primeiros 10 chars):', DEBITOPAY_WEBHOOK_SECRET?.slice(0, 10));
-console.log('📝 SIGNATURE LIMPA (recebida):', signature);
-console.log('🧮 SIGNATURE CALCULADA:', calculatedSig);
-console.log('📏 TAMANHOS:', signature.length, calculatedSig.length);
-            
+        // 3. Calcula HMAC usando o Buffer cru (NÃO usar string + .trim() aqui!).
+        const secretLimpo = (DEBITOPAY_WEBHOOK_SECRET || '').trim();
+        const sigAsHex  = crypto.createHmac('sha256', Buffer.from(secretLimpo, 'hex')).update(rawBodyBuffer).digest('hex');
+        const sigAsUtf8 = crypto.createHmac('sha256', Buffer.from(secretLimpo, 'utf-8')).update(rawBodyBuffer).digest('hex');
 
-        const assinaturaValida = signature.length === calculatedSig.length &&
-            crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(calculatedSig, 'hex'));
+        // 4. Comparação timing-safe (proteção contra timing attacks no endpoint
+        //    público). timingSafeEqual exige buffers do MESMO tamanho — então
+        //    checamos length antes, e só depois comparamos.
+        const safeEq = (a, b) => a.length === b.length && crypto.timingSafeEqual(a, b);
+        const sigBuf  = Buffer.from(signature, 'hex');
+        const hexBuf  = Buffer.from(sigAsHex, 'hex');
+        const utfBuf  = Buffer.from(sigAsUtf8, 'hex');
+        const isHexValid  = safeEq(sigBuf, hexBuf);
+        const isUtf8Valid = safeEq(sigBuf, utfBuf);
+        const matched     = isHexValid || isUtf8Valid;
 
-        if (!assinaturaValida) {
-            console.warn('⚠️ Assinatura inválida no webhook Débito Pay');
+        if (!matched) {
+            // Em prod, log conciso com sig/body lengths apenas (sem bytes do
+            // secret nem do body) — ops ainda vê que houve falha, mas bytes do
+            // secret não vazam em logs compartilhados nem viram vetor de
+            // log-amplification DoS. Verbose dump só em dev/staging.
+            if (verboseLogging) {
+                console.log('🚨 Assinatura inválida no webhook Débito Pay — diagnóstico completo:');
+                console.log('  🔑 SECRET length:', secretLimpo.length);
+                console.log('  🔑 SECRET bytes (hex):', Buffer.from(secretLimpo, 'utf-8').toString('hex'));
+                console.log('  📨 BODY length:', rawBodyBuffer.length);
+                console.log('  📨 BODY bytes (hex, primeiros 200):', rawBodyBuffer.toString('hex').slice(0, 200));
+                console.log('  📨 RAW BODY:', rawBodyBuffer.toString('utf-8'));
+                console.log('  📝 SIGNATURE recebida:', signature);
+                console.log('  🧮 HMAC (secret as HEX bytes):  ', sigAsHex);
+                console.log('  🧮 HMAC (secret as UTF-8 str): ', sigAsUtf8);
+                console.log('  ❌ Match: NENHUM');
+            } else {
+                console.warn(`⚠️ Webhook DebitoPay 401 (sig_len=${signature.length}, body_len=${rawBodyBuffer.length}, secret_len=${secretLimpo.length})`);
+            }
+            console.warn('⚠️ Webhook Débito Pay rejeitado com 401.');
             return res.status(401).json({ error: 'Assinatura inválida' });
         }
 
-        // Responde 200 imediatamente após validar a assinatura; processa em seguida.
-        // Isso evita retry desnecessário se a chamada ao MozHost demorar.
+        // Sucesso: 1 linha concisa (não vaza bytes do secret em logs).
+        const eventHint = (req.body && (req.body.event || req.body.data?.status)) || '-';
+        console.log(`✅ Webhook Débito Pay validado (chave=${isHexValid ? 'HEX' : 'UTF-8'}, body=${rawBodyBuffer.length}B, event=${eventHint})`);
+
+        // 6. Responde 200 IMEDIATAMENTE — processa em background pra evitar
+        //    retries desnecessários se a chamada ao MozHost demorar.
         res.status(200).json({ received: true });
 
-        const { event, data } = req.body;
+        // 7. Processa o pagamento.
+        const { event, data } = req.body || {};
 
-        if (!data || !data.id) {
-    console.warn('⚠️ Webhook Débito Pay sem data.id, ignorando:', req.body);
-    return;
-}
-
-        console.log(`📩 Webhook Débito Pay [${event}]:`, data);
-
-        const payment = await Payment.findOne({
-            'debitopay_data.payment_id': data.payment_id
-        });
-
-        if (!payment) {
-            console.warn(`⚠️ Pagamento não encontrado para payment_id: ${data.payment_id}`);
+        // Débito Pay coloca o id no TOPO do body E dentro de `data` (mesmo valor).
+        // O código antigo procurava só `data.payment_id`, que não existe no
+        // payload real — por isso dava "pagamento não encontrado" mesmo com
+        // assinatura válida. Aqui aceitamos qualquer um dos três.
+        const paymentId = data?.payment_id || data?.id || req.body?.id;
+        if (!paymentId) {
+            console.warn('⚠️ Webhook Débito Pay sem id em lugar nenhum, ignorando:', req.body);
             return;
         }
 
-        // Idempotência: se já processamos esse payment_id com sucesso, não credita de novo.
-        if (event === 'payment.completed') {
-    if (payment.status === 'completed') {
-        console.log(`ℹ️ Pagamento ${data.payment_id} já estava completed, ignorando evento duplicado.`);
-        return;
-    }
+        const payment = await Payment.findOne({ 'debitopay_data.payment_id': paymentId });
+        if (!payment) {
+            console.warn(`⚠️ Pagamento não encontrado para payment_id: ${paymentId}`);
+            return;
+        }
 
-    const isPagamentoParceiro = payment.provider && payment.provider.startsWith('mpesa_parceiro_');
+        console.log(`📩 Webhook Débito Pay [${event || data?.status || 'sem event'}]:`, data);
 
-    if (!isPagamentoParceiro) {
-        await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
-            method: 'POST',
-            headers: {
-                'x-internal-key': process.env.INTERNAL_SECRET_KEY,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                userId: payment.userId,
-                coins: payment.credits_to_add,
-                externalPaymentId: payment.payment_id
-            })
-        });
-    } else {
-        console.log(`ℹ️ Pagamento de parceiro (${payment.provider}) confirmado — sem crédito de coins no MozHost.`);
-    }
-
-    payment.status = 'completed';
-    payment.debitopay_data.reference = data.reference;
-    payment.debitopay_data.paid_at = data.paid_at;
-    await payment.save();
-
-    console.log(`✅ Pagamento Débito Pay confirmado: ${data.amount} ${data.currency}`);
-} else if (event === 'payment.failed') {
-            if (payment.status !== 'failed') {
-                payment.status = 'failed';
-                await payment.save();
-                console.log(`❌ Pagamento Débito Pay falhou: ${data.payment_id}`);
+        // 8. Idempotência + roteamento por evento.
+        if (event === 'payment.completed' || data?.status === 'completed') {
+            if (payment.status === 'completed') {
+                console.log(`ℹ️ Pagamento ${paymentId} já estava completed. Evento duplicado ignorado.`);
+                return;
             }
 
+            const isPagamentoParceiro = payment.provider && payment.provider.startsWith('mpesa_parceiro_');
+
+            if (!isPagamentoParceiro) {
+                await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
+                    method: 'POST',
+                    headers: {
+                        'x-internal-key': process.env.INTERNAL_SECRET_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        userId: payment.userId,
+                        coins: payment.credits_to_add,
+                        externalPaymentId: payment.payment_id
+                    })
+                });
+            } else {
+                console.log(`ℹ️ Pagamento de parceiro (${payment.provider}) confirmado — sem crédito de coins no MozHost.`);
+            }
+
+            payment.status = 'completed';
+            if (data?.reference) payment.debitopay_data.reference = data.reference;
+            if (data?.provider_reference) payment.debitopay_data.provider_reference = data.provider_reference;
+            if (data?.paid_at) payment.debitopay_data.paid_at = data.paid_at;
+            // event_id da Débito Pay (NÃO request_id — isso é convenção do PaySuite)
+            if (req.body.event_id) payment.debitopay_data.event_id = req.body.event_id;
+            await payment.save();
+
+            console.log(`✅ Pagamento Débito Pay confirmado: ${data?.amount ?? payment.amount} ${data?.currency || payment.currency}`);
+        } else if (event === 'payment.failed' || data?.status === 'failed') {
+            if (payment.status !== 'failed') {
+                payment.status = 'failed';
+                payment.debitopay_data.error = data?.error || req.body.error || null;
+                await payment.save();
+                console.log(`❌ Pagamento Débito Pay falhou: ${paymentId}`);
+            }
         } else if (event === 'payment.refunded') {
             // Só ocorre para Visa/Mastercard. Remove as coins que foram creditadas.
             if (payment.status === 'completed') {
@@ -1057,19 +1149,27 @@ console.log('📏 TAMANHOS:', signature.length, calculatedSig.length);
 
                 payment.status = 'refunded';
                 await payment.save();
-                console.log(`↩️ Pagamento Débito Pay reembolsado, coins removidos: ${data.payment_id}`);
+                console.log(`↩️ Pagamento Débito Pay reembolsado, coins removidos: ${paymentId}`);
             }
-
         } else if (event === 'payment.chargeback') {
             // Chargeback é mais sério que refund — vale notificar você manualmente também.
             payment.status = 'chargeback';
             await payment.save();
-            console.warn(`🚨 CHARGEBACK recebido para pagamento ${data.payment_id} — revisar manualmente.`);
+            console.warn(`🚨 CHARGEBACK recebido para pagamento ${paymentId} — revisar manualmente.`);
+        } else {
+            console.log(`ℹ️ Evento Débito Pay não tratado: ${event || 'sem event'} (status=${data?.status})`);
         }
 
     } catch (error) {
         console.error('❌ Erro no webhook Débito Pay:', error);
-        // Resposta 200 já foi enviada acima; erro aqui só é logado para investigação.
+        // Se o erro aconteceu DEPOIS do 200, não conseguimos mais responder pro
+        // Débito Pay. O pagamento fica como 'pending' e o cron fallback
+        // (processPendingDebitoPayPayments) vai resolver via check-status.
+        if (!res.headersSent) {
+            return res.status(500).json({ error: 'Erro interno no webhook' });
+        } else {
+            console.warn('⚠️ Erro pós-200 no webhook. Resposta já enviada — o pagamento será corrigido pelo cron fallback.');
+        }
     }
 }));
 

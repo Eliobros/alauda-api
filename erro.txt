@@ -1,0 +1,58 @@
+Request direto - validando API Key...
+0|api      | 📍 Rota: /api/payment/mpesa/parceiro/felio
+0|api      | 💰 Créditos necessários: 10
+0|api      | 💰 Créditos disponíveis: 60
+0|api      | ✅ Autenticação direta concedida
+0|api      | 📤 Enviando requisição SPLIT para Débito Pay (Parceiro: Felio Cliente #1, mpesa): {
+0|api      |   action: 'process',
+0|api      |   payment_method: 'mpesa',
+0|api      |   merchant_id: '***',
+0|api      |   amount: 10,
+0|api      |   currency: 'MZN',
+0|api      |   phone: '847408587',
+0|api      |   source: 'alauda_api_parceiro',
+0|api      |   source_id: 'alauda_parceiro_felio_6a4a7ab0af993_1783494381017',
+0|api      |   split_payout_rules: [
+0|api      |     {
+0|api      |       wallet_code: '***',
+0|api      |       percentage: 85,
+0|api      |       description: 'Parte do parceiro (Felio Cliente #1)'
+0|api      |     },
+0|api      |     {
+0|api      |       wallet_code: '***',
+0|api      |       percentage: 15,
+0|api      |       description: 'Comissão de Plataforma MozHost'
+0|api      |     }
+0|api      |   ]
+0|api      | }
+0|api      | 💰 Breakdown líquido (bruto 10 MZN, taxa DebitoPay 7%): {
+0|api      |   valor_bruto: 10,
+0|api      |   taxa_debitopay: 0.7,
+0|api      |   valor_liquido: 9.3,
+0|api      |   recebe_parceiro: 7.9,
+0|api      |   recebe_plataforma: 1.39
+0|api      | }
+0|api      | ✅ Sucesso! Consumindo 10 créditos...
+0|api      | 🔬 rawBody length: 1142
+0|api      | 🔬 rawBody primeiros 200 chars: {"event_id":"mp-af66bfa0-0dbb-428e-b64e-301dc1e09328-success","event":"payment.completed","delivery_id":"4e06ed35-58e0-416a-8c89-56ef27e764a7","created_at":"2026-07-08T07:06:46.243498+00:00","id":"af6
+0|api      | 🔥🔥🔥 WEBHOOK DEBITOPAY CHEGOU 🔥🔥🔥
+0|api      | RAW BODY: {"event_id":"mp-af66bfa0-0dbb-428e-b64e-301dc1e09328-success","event":"payment.completed","delivery_id":"4e06ed35-58e0-416a-8c89-56ef27e764a7","created_at":"2026-07-08T07:06:46.243498+00:00","id":"af66bfa0-0dbb-428e-b64e-301dc1e09328","error":null,"phone":"258847408587","amount":10,"method":"mpesa","status":"completed","currency":"MZN","customer":{"name":null,"email":null,"phone":null},"metadata":{"source":"alauda_api_parceiro","qr_name":null,"vsl_name":null,"link_name":null,"source_id":"alauda_parceiro_felio_6a4a7ab0af993_1783494381017","wallet_id":null},"reference":"T4ZUTNOMQ8N","timestamp":"2026-07-08T07:06:45.956Z","provider_reference":"DG89KR8R877","data":{"id":"af66bfa0-0dbb-428e-b64e-301dc1e09328","error":null,"phone":"258847408587","amount":10,"method":"mpesa","status":"completed","currency":"MZN","customer":{"name":null,"email":null,"phone":null},"metadata":{"source":"alauda_api_parceiro","qr_name":null,"vsl_name":null,"link_name":null,"source_id":"alauda_parceiro_felio_6a4a7ab0af993_1783494381017","wallet_id":null},"reference":"T4ZUTNOMQ8N","timestamp":"2026-07-08T07:06:45.956Z","provider_reference":"DG89KR8R877"}}
+0|api      | SIGNATURE HEADER: sha256=b9f4805945db2d6db769e325d4b5911ee44303fcedcf4678da34b578795ca5e2
+0|api      | 🔍 SECRET length: 64
+0|api      | 🔍 SECRET raw (JSON): "8e28cb741f5653c0be72e4fcae2fd855dd965a5151ff707d9466336e3bd51c5f"
+0|api      | � CALCULADA COMO HEXA: 82acf4bed453decb1011528389686b8b8002c4f70ba4b972fc1084bfdf0e9555
+0|api      | � CALCULADA COMO TEXTO: d43f38c3f207070b2f0325c4b55937a89939a383ed0b4ad9c78b08c2bf82d1e3
+0|api      | 🔑 SECRET USADO (primeiros 10 chars): 8e28cb741f
+0|api      | 📝 SIGNATURE LIMPA (recebida): b9f4805945db2d6db769e325d4b5911ee44303fcedcf4678da34b578795ca5e2
+0|api      | � SIGNATURE CALCULADA: 82acf4bed453decb1011528389686b8b8002c4f70ba4b972fc1084bfdf0e9555
+0|api      | 📏 TAMANHOS: 64 64
+0|api      | POST   401 /api/payment/webhook/debitopay 4ms
+0|api      | 💰 Créditos restantes: 50
+0|api      | POST   200 /api/payment/mpesa/parceiro/felio 25818ms
+0|api      | 🔄 [DébitoPay Fallback] Verificando 0 pagamentos pendentes...
+0|api      | 🔄 [DébitoPay Fallback] Verificando 1 pagamentos pendentes...
+0|api      | ✅ [DébitoPay Fallback] Pagamento de parceiro af66bfa0-0dbb-428e-b64e-301dc1e09328 confirmado (mpesa_parceiro_felio) — sem crédito de coins
+0|api      | ✅ [CRON DébitoPay] Verificados: 1 | Creditados: 1 | Falhas: 0
+0|api      | 🔄 [DébitoPay Fallback] Verificando 0 pagamentos pendentes...
+0|api      | 🔄 [CRON] Processando pagamentos pendentes...
+0|api      | 🔄 [DébitoPay Fallback] Verificando 0 pagamentos pendentes...
