@@ -71,6 +71,7 @@ module.exports = {
     SPOTIFY_DOWNLOAD: 50,
 	REMOVE_BG: 10,
         YOUTUBE_INFO: 10,          // 1 crédito
+        YOUTUBE_SEARCH: 10,         // 1 crédito (busca de vídeos)
         YOUTUBE_DOWNLOAD: 200,      // 2 créditos (mais pesado)
         INSTAGRAM_DOWNLOAD: 150,    // 1 crédito
         STATUS_MENTION: 250,        // 1 crédito

@@ -378,6 +378,190 @@ paths:
                   credits_remaining:
                     type: integer
 
+  /api/youtube/search:
+    post:
+      tags:
+        - Media Downloads
+      summary: Search YouTube Videos
+      description: Search videos on YouTube by query (free, no external API key needed)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  example: "Rick Astley"
+                max_results:
+                  type: integer
+                  minimum: 1
+                  maximum: 25
+                  default: 10
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      query:
+                        type: string
+                      count:
+                        type: integer
+                      videos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            title:
+                              type: string
+                            url:
+                              type: string
+                              format: uri
+                            thumbnail:
+                              type: string
+                              format: uri
+                            duration:
+                              type: string
+                            views:
+                              type: string
+                            published:
+                              type: string
+                            channel:
+                              type: string
+                  credits_remaining:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          $ref: '#/components/responses/InsufficientCredits'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/admin/keys/add-credits:
+    post:
+      tags:
+        - System
+      summary: Add Credits to an API Key (Admin only)
+      description: |
+        Add credits (reqs) to an API key. RESTRICTED to the owner admin key
+        (email: eliobrostech3@gmail.com). Send the admin key in the X-API-Key header.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - credits
+              properties:
+                apiKey:
+                  type: string
+                  description: Full target API key (alauda_live_...)
+                  example: "alauda_live_abcdef..."
+                email:
+                  type: string
+                  description: Owner email (uses the most recent active key)
+                  example: "cliente@email.com"
+                credits:
+                  type: integer
+                  minimum: 1
+                  example: 500
+                reason:
+                  type: string
+                  description: Optional reason recorded in recharge history
+                  example: "bônus"
+      responses:
+        '200':
+          description: Credits added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                      credits_added:
+                        type: integer
+                      credits_total:
+                        type: integer
+                      target:
+                        type: object
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Not the admin key
+
+  /api/admin/keys:
+    get:
+      tags:
+        - System
+      summary: List API Keys (Admin only)
+      description: List/search API keys. RESTRICTED to the owner admin key.
+      parameters:
+        - in: query
+          name: email
+          schema:
+            type: string
+        - in: query
+          name: plan
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [active, suspended]
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: List of keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                      total:
+                        type: integer
+                      keys:
+                        type: array
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Not the admin key
+
   /api/youtube/download:
     post:
       tags:

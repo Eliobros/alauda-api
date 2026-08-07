@@ -8,6 +8,100 @@ const authenticateApiKey = require('../middleware/auth');
 const response = require('../utils/responseHandler');
 const constants = require('../config/constants');
 
+// User-Agent de browser real — o YouTube bloqueia requests sem UA
+const YT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+
+/**
+ * Busca vídeos no YouTube (scraping do próprio YouTube, sem chave externa)
+ * Extrai os resultados do JSON `ytInitialData` da página de resultados.
+ */
+async function searchYouTube(query, maxResults = 10) {
+    try {
+        const { data } = await axios.get('https://www.youtube.com/results', {
+            params: { search_query: query },
+            headers: {
+                'User-Agent': YT_UA,
+                'Accept-Language': 'pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+            },
+            timeout: 15000
+        });
+
+        // Extrai o JSON `ytInitialData` embutido na página
+        const match = data.match(/var ytInitialData = (\{.*?\});<\/script>/s);
+        if (!match) {
+            throw new Error('Não foi possível ler os resultados do YouTube');
+        }
+
+        const initialData = JSON.parse(match[1]);
+        const videos = [];
+
+        // Percorre o JSON procurando todos os videoRenderer
+        const walk = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+
+            if (obj.videoRenderer) {
+                const vr = obj.videoRenderer;
+                const videoId = vr.videoId;
+                if (!videoId) return;
+
+                const title = vr.title?.runs?.[0]?.text || vr.title?.simpleText || '';
+                const length = vr.lengthText?.simpleText || null;
+                const views = vr.viewCountText?.simpleText || null;
+                const published = vr.publishedTimeText?.simpleText || null;
+                const channel = vr.ownerText?.runs?.[0]?.text || null;
+                const channelId = vr.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || null;
+                const thumb = vr.thumbnail?.thumbnails?.[0]?.url || null;
+
+                // Remove parâmetros de tracking da thumbnail
+                const cleanThumb = thumb ? thumb.split('?')[0] : null;
+
+                videos.push({
+                    id: videoId,
+                    title,
+                    url: `https://www.youtube.com/watch?v=${videoId}`,
+                    thumbnail: cleanThumb,
+                    duration: length,
+                    views,
+                    published,
+                    channel,
+                    channel_id: channelId
+                });
+                return;
+            }
+
+            if (Array.isArray(obj)) {
+                obj.forEach(walk);
+            } else {
+                Object.values(obj).forEach(walk);
+            }
+        };
+
+        walk(initialData);
+
+        if (videos.length === 0) {
+            throw new Error('Nenhum resultado encontrado');
+        }
+
+        return {
+            success: true,
+            query,
+            count: videos.length,
+            videos: videos.slice(0, maxResults)
+        };
+
+    } catch (error) {
+        console.error('❌ Erro ao buscar no YouTube:', error.message);
+
+        if (error.response?.status === 429) {
+            throw new Error('Limite de requisições atingido. Tente novamente em alguns minutos.');
+        }
+        if (error.message.includes('Nenhum resultado') || error.message.includes('ler os resultados')) {
+            throw error;
+        }
+        throw new Error('Erro ao buscar vídeos no YouTube');
+    }
+}
+
 /**
  * Valida URL do YouTube
  */
@@ -151,6 +245,7 @@ router.get('/info', (req, res) => {
         endpoint: '/api/youtube',
         description: 'YouTube video/audio downloader',
         features: [
+            'Busca de vídeos',
             'Download de áudio (MP3)',
             'Download de vídeo',
             'Qualidade selecionável',
@@ -158,6 +253,18 @@ router.get('/info', (req, res) => {
             'URLs alternativas',
             'Batch download (PRO/PREMIUM)'
         ],
+        search: {
+            method: 'POST',
+            endpoint: '/api/youtube/search',
+            headers: {
+                'X-API-Key': 'sua_api_key_aqui',
+                'Content-Type': 'application/json'
+            },
+            body: {
+                query: 'Rick Astley',
+                max_results: 10
+            }
+        },
         formats: ['mp3', 'mp4'],
         qualities: {
             audio: ['128', '192', '256', '320'],
@@ -179,6 +286,47 @@ router.get('/info', (req, res) => {
         }
     });
 });
+
+router.post('/search', authenticateApiKey, response.asyncHandler(async (req, res) => {
+    try {
+        const { query, max_results = 10 } = req.body;
+
+        if (!query || typeof query !== 'string' || query.trim().length === 0) {
+            return response.validationError(res, [{
+                field: 'query',
+                message: 'Query de busca é obrigatória'
+            }]);
+        }
+
+        const maxResults = Math.min(Math.max(Number(max_results) || 10, 1), 25);
+
+        console.log(`🔍 Buscando no YouTube: "${query}" (máx ${maxResults})`);
+
+        const result = await searchYouTube(query.trim(), maxResults);
+
+        await req.logSuccess({
+            case: 'youtube_search',
+            query: query,
+            results: result.count
+        });
+
+        return response.success(res, {
+            query: result.query,
+            count: result.count,
+            videos: result.videos,
+            credits_remaining: req.apiKeyData.credits
+        });
+
+    } catch (error) {
+        console.error('❌ Erro na busca do YouTube:', error);
+        await req.logError(500, error.message, { case: 'youtube_search' });
+
+        if (error.message.includes('Limite')) {
+            return response.error(res, error.message, 429);
+        }
+        return response.error(res, error.message, 500);
+    }
+}));
 
 router.post('/download', authenticateApiKey, response.asyncHandler(async (req, res) => {
     try {

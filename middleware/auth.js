@@ -317,6 +317,7 @@ function getCreditsCost(url) {
     if (url.includes('/twitter')) return constants.COSTS.TWITTER_DOWNLOAD;
 
     // YouTube
+    if (url.includes('/youtube/search')) return constants.COSTS.YOUTUBE_SEARCH;
     if (url.includes('/youtube/download')) return constants.COSTS.YOUTUBE_DOWNLOAD;
     if (url.includes('/youtube/info')) return constants.COSTS.YOUTUBE_INFO;
     if (url.includes('/youtube')) return constants.COSTS.YOUTUBE_DOWNLOAD; // Fallback genérico
@@ -362,8 +363,10 @@ function getCreditsCost(url) {
 function getCaseName(url) {
     if (url.includes('/tiktok')) return 'tiktok_download';
     if (url.includes('/twitter')) return 'twitter_download';
+    if (url.includes('/youtube/search')) return 'youtube_search';
     if (url.includes('/youtube/download')) return 'youtube_download';
     if (url.includes('/youtube/info')) return 'youtube_info';
+    if (url.includes('/youtube')) return 'youtube_download';
     if (url.includes('/instagram')) return 'instagram_download';
     if (url.includes('/whatsapp')) return 'status_mention';
     if (url.includes('/payment/mpesa')) return 'mpesa_payment';

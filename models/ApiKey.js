@@ -42,6 +42,15 @@ const apiKeySchema = new mongoose.Schema({
         default: 'free',
         lowercase: true
     },
+
+    // ===== ROLE (ADMIN) =====
+    // Apenas a chave do dono (eliobrostech3@gmail.com) tem role 'admin'.
+    role: {
+        type: String,
+        enum: ['user', 'admin'],
+        default: 'user',
+        lowercase: true
+    },
     credits: {
         type: Number,
         default: 100, // Plano free começa com 100

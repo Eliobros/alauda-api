@@ -34,15 +34,17 @@ const usageSchema = new mongoose.Schema({
         'twitter_download',
         'youtube_download',
         'youtube_info',
+        'youtube_search',
         'lyrics_suggestions',
         'lyrics_batch',
         'lyrics_search',
         'emola_payment',
         'mpesa_payment',
         'instagram_download',
-        'facebook_download',      // ← ADICIONA AQUI
-        'spotify_download',       // ← ADICIONA AQUI (se tiver)
-        'shazam_identify',        // ← ADICIONA AQUI (se tiver)
+        'facebook_download',
+        'spotify_download',
+        'spotify_search',
+        'shazam_identify',
         'status_mention',
         'mpesa_validate',
         'emola_validate',

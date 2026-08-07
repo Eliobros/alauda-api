@@ -21,6 +21,7 @@ const logger = require('./middleware/logger');
 const validateRoutes = require('./routes/validate');
 const lyricsRoutes = require('./routes/lyrics');
 const authRoutes = require('./routes/auth');
+const adminRoutes = require('./routes/admin');
 const keysRoutes = require('./routes/keys');
 const cpfRoutes = require('./routes/cpf');
 const spotifyRoutes = require('./routes/spotify');
@@ -124,6 +125,7 @@ console.log('\n🚀 ===== CARREGANDO ROTAS ===== 🚀\n');
 // ===== ROTAS DA API =====
 app.use('/api/vocalremove', vocalRemoveRoutes);
 registerRoute('/api/auth', authRoutes, 'Autenticação');
+registerRoute('/api/admin', adminRoutes, 'Admin (apenas dono)');
 registerRoute('/api/keys', keysRoutes, 'Gerenciamento de API Keys');
 registerRoute('/api/cpf', cpfRoutes, 'Validação CPF');
 registerRoute('/api/spotify', spotifyRoutes, 'Spotify Downloader');
