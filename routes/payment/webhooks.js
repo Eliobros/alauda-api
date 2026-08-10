@@ -99,6 +99,14 @@ router.post('/webhook/debitopay', response.asyncHandler(async (req, res) => {
             return;
         }
 
+        // Define se este pagamento deve creditar coins no MozHost:
+        // - origin 'mozhost' (padrão) → credita coins
+        // - outras origins (ex: 'eliobrospay') → só confirma o pagamento, sem crédito
+        // - pagamentos legados de parceiro (mpesa_parceiro_*) → sem crédito
+        const isPagamentoParceiro = payment.provider && payment.provider.startsWith('mpesa_parceiro_');
+        const isOriginCreditaCoins = !payment.origin || payment.origin === 'mozhost';
+        const creditaCoins = !isPagamentoParceiro && isOriginCreditaCoins;
+
         // Idempotência: se já processamos esse payment_id com sucesso, não credita de novo.
         if (event === 'payment.completed' || data?.status === 'completed') {
             if (payment.status === 'completed') {
@@ -106,9 +114,7 @@ router.post('/webhook/debitopay', response.asyncHandler(async (req, res) => {
                 return;
             }
 
-            const isPagamentoParceiro = payment.provider && payment.provider.startsWith('mpesa_parceiro_');
-
-            if (!isPagamentoParceiro) {
+            if (creditaCoins) {
                 await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
                     method: 'POST',
                     headers: {
@@ -122,7 +128,7 @@ router.post('/webhook/debitopay', response.asyncHandler(async (req, res) => {
                     })
                 });
             } else {
-                console.log(`ℹ️ Pagamento de parceiro (${payment.provider}) confirmado — sem crédito de coins no MozHost.`);
+                console.log(`ℹ️ Pagamento ${paymentId} confirmado (origin=${payment.origin || 'mozhost'}, provider=${payment.provider}) — sem crédito de coins no MozHost.`);
             }
 
             payment.status = 'completed';
@@ -141,8 +147,9 @@ router.post('/webhook/debitopay', response.asyncHandler(async (req, res) => {
             }
 
         } else if (event === 'payment.refunded') {
-            // Só ocorre para Visa/Mastercard. Remove as coins que foram creditadas.
-            if (payment.status === 'completed') {
+            // Só ocorre para Visa/Mastercard. Remove as coins que foram creditadas
+            // (apenas se o pagamento tinha creditado coins — origin mozhost).
+            if (payment.status === 'completed' && creditaCoins) {
                 await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
                     method: 'POST',
                     headers: {
@@ -158,6 +165,10 @@ router.post('/webhook/debitopay', response.asyncHandler(async (req, res) => {
                 payment.status = 'refunded';
                 await payment.save();
                 console.log(`↩️ Pagamento Débito Pay reembolsado, coins removidos: ${paymentId}`);
+            } else if (payment.status === 'completed') {
+                payment.status = 'refunded';
+                await payment.save();
+                console.log(`↩️ Pagamento Débito Pay reembolsado (origin=${payment.origin || 'mozhost'} — sem coins para remover): ${paymentId}`);
             }
 
         } else if (event === 'payment.chargeback') {

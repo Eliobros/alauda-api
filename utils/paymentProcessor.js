@@ -53,8 +53,19 @@ async function processMercadoPagoWebhook(webhookData) {
         // Atualiza status
         await payment.approve(webhookData);
 
-        // Se aprovado, processa e adiciona créditos
+        // Se aprovado, processa e adiciona créditos (apenas para origin 'mozhost')
         if (payment.status === 'approved') {
+            // Outras origins (ex: 'eliobrospay') só confirmam o pagamento, sem creditar coins.
+            // Marca como processado para o processador de pendentes (processPendingPayments)
+            // não creditar coins depois via processPayment().
+            if (payment.origin && payment.origin !== 'mozhost') {
+                payment.processed = true;
+                payment.processed_at = new Date();
+                await payment.save();
+                console.log(`ℹ️ Pagamento MercadoPago ${paymentId} aprovado (origin=${payment.origin}) — sem crédito de coins.`);
+                return { success: true, message: 'Status atualizado sem crédito (origin não-mozhost)' };
+            }
+
             const result = await payment.processPayment();
             
             console.log(`💰 Créditos adicionados com sucesso!`);
@@ -311,11 +322,12 @@ async function processPendingDebitoPayPayments() {
 
                 const status = result.payment.status;
                 const isParceiro = payment.provider.startsWith('mpesa_parceiro_');
+                // Só credita coins se origin for 'mozhost' (padrão) e NÃO for parceiro
+                const isOriginCreditaCoins = !payment.origin || payment.origin === 'mozhost';
+                const creditaCoins = !isParceiro && isOriginCreditaCoins;
 
                 if (status === 'success' && payment.status !== 'completed') {
-                    // Só credita coins no MozHost se NÃO for pagamento de parceiro
-                    // (parceiro já recebe direto na wallet dele via split da Débito Pay)
-                    if (!isParceiro) {
+                    if (creditaCoins) {
                         await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
                             method: 'POST',
                             headers: {
@@ -336,9 +348,9 @@ async function processPendingDebitoPayPayments() {
                     await payment.save();
 
                     console.log(
-                        isParceiro
-                            ? `✅ [DébitoPay Fallback] Pagamento de parceiro ${payment.payment_id} confirmado (${payment.provider}) — sem crédito de coins`
-                            : `✅ [DébitoPay Fallback] Pagamento ${payment.payment_id} creditado via consulta de status (${payment.credits_to_add} coins, user ${payment.userId})`
+                        creditaCoins
+                            ? `✅ [DébitoPay Fallback] Pagamento ${payment.payment_id} creditado via consulta de status (${payment.credits_to_add} coins, user ${payment.userId}, origin=${payment.origin || 'mozhost'})`
+                            : `✅ [DébitoPay Fallback] Pagamento ${payment.payment_id} confirmado (origin=${payment.origin || 'mozhost'}, provider=${payment.provider}) — sem crédito de coins`
                     );
                     credited++;
 

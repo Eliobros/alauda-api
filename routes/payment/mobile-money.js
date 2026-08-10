@@ -47,7 +47,7 @@ const METODOS_MOBILE_MONEY = {
 function criarRotaMobileMoney(metodo, config) {
     router.post(`/${metodo}`, authenticateApiKey, response.asyncHandler(async (req, res) => {
         try {
-            const { valor, numero_celular, usuario_id } = req.body;
+            const { valor, numero_celular, usuario_id, origin } = req.body;
 
             if (!valor || parseFloat(valor) < 10) {
                 return response.validationError(res, [
@@ -90,6 +90,7 @@ function criarRotaMobileMoney(metodo, config) {
                 credits_to_add: credits,
                 ip_address: req.clientIP,
                 user_agent: req.userAgent,
+                origin: origin || 'mozhost',
                 debitopay_data: {
                     payment_id: paymentData.payment_id,
                     source_id: paymentData.source_id,
@@ -102,7 +103,8 @@ function criarRotaMobileMoney(metodo, config) {
                 usuario_id: mongoUserId,
                 valor: valor,
                 payment_id: paymentData.payment_id,
-                credits_to_add: credits
+                credits_to_add: credits,
+                origin: origin || 'mozhost'
             });
 
             return response.success(res, {
@@ -131,7 +133,7 @@ Object.entries(METODOS_MOBILE_MONEY).forEach(([metodo, config]) => criarRotaMobi
 
 router.post('/visa_mastercard', authenticateApiKey, response.asyncHandler(async (req, res) => {
     try {
-        const { valor, customer_email, customer_name, usuario_id, return_url } = req.body;
+        const { valor, customer_email, customer_name, usuario_id, return_url, origin } = req.body;
 
         if (!valor || parseFloat(valor) < 10) {
             return response.validationError(res, [
@@ -188,6 +190,7 @@ router.post('/visa_mastercard', authenticateApiKey, response.asyncHandler(async 
             credits_to_add: credits,
             ip_address: req.clientIP,
             user_agent: req.userAgent,
+            origin: origin || 'mozhost',
             debitopay_data: {
                 payment_id: paymentData.payment_id,
                 source_id: paymentData.source_id,
@@ -200,7 +203,8 @@ router.post('/visa_mastercard', authenticateApiKey, response.asyncHandler(async 
             usuario_id: mongoUserId,
             valor: valor,
             payment_id: paymentData.payment_id,
-            credits_to_add: credits
+            credits_to_add: credits,
+            origin: origin || 'mozhost'
         });
 
         return response.success(res, {

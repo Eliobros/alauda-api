@@ -14,7 +14,7 @@ const { createPaymentPreference, getPaymentStatus } = require('../../services/me
 
 router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req, res) => {
     try {
-        const { email, amount, description, usuario_id, back_urls, notification_url } = req.body;
+        const { email, amount, description, usuario_id, back_urls, notification_url, origin } = req.body;
 
         if (!email) {
             return response.validationError(res, [{ field: 'email', message: 'Email é obrigatório' }]);
@@ -51,6 +51,7 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
             description: description,
             ip_address: req.clientIP,
             user_agent: req.userAgent,
+            origin: origin || 'mozhost',
             mercadopago_data: {
                 preference_id: paymentData.id,
                 init_point: paymentData.init_point,
@@ -63,7 +64,8 @@ router.post('/mercadopago', authenticateApiKey, response.asyncHandler(async (req
             usuario_id: mongoUserId,
             amount: amount,
             payment_id: paymentData.id,
-            credits_to_add: credits
+            credits_to_add: credits,
+            origin: origin || 'mozhost'
         });
 
         return response.success(res, {

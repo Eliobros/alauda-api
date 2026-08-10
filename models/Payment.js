@@ -23,6 +23,15 @@ const paymentSchema = new mongoose.Schema({
         index: true
     },
 
+    // ===== ORIGEM DA CHAMADA =====
+    // Identifica quem está criando o pagamento. 'mozhost' (padrão) credita coins
+    // no webhook; outras origens (ex: 'eliobrospay') apenas confirmam o pagamento.
+    origin: {
+        type: String,
+        default: 'mozhost',
+        index: true
+    },
+
     // ===== DADOS DO USUÁRIO =====
     userId: {
         type: String,
@@ -311,6 +320,7 @@ paymentSchema.statics.createPayment = async function(data) {
         mercadopago_data: data.mercadopago_data,
         mpesa_data: data.mpesa_data,
 	debitopay_data: data.debitopay_data,
+        origin: data.origin || 'mozhost',
         metadata: data.metadata
     });
 
