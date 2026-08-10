@@ -1,5 +1,5 @@
 // ===== ROUTES/PAYMENT/MOBILE-MONEY.JS =====
-// Rotas de pagamento via Débito Pay: M-Pesa, E-Mola, mKesh, Parceiro (split) e Visa/Mastercard.
+// Rotas de pagamento via Débito Pay: M-Pesa, E-Mola, mKesh e Visa/Mastercard.
 
 const express = require('express');
 const router = express.Router();
@@ -8,12 +8,7 @@ const authenticateApiKey = require('../../middleware/auth');
 const response = require('../../utils/responseHandler');
 const Payment = require('../../models/Payment');
 const paymentProcessor = require('../../utils/paymentProcessor');
-const {
-    processDebitoPayPayment,
-    processDebitoPayPaymentParceiro,
-    DEBITOPAY_SPLIT_PARTNERS,
-    breakdownPublico
-} = require('../../services/debitopayService');
+const { processDebitoPayPayment } = require('../../services/debitopayService');
 
 // ===== FÁBRICA DE ROTAS MOBILE MONEY =====
 // mpesa, emola e mkesh seguem o mesmo fluxo — mudam apenas o regex do telefone,
@@ -131,95 +126,6 @@ function criarRotaMobileMoney(metodo, config) {
 }
 
 Object.entries(METODOS_MOBILE_MONEY).forEach(([metodo, config]) => criarRotaMobileMoney(metodo, config));
-
-// ===== ROTA PARCEIRO (SPLIT) =====
-
-router.post('/mpesa/parceiro/:parceiro', authenticateApiKey, response.asyncHandler(async (req, res) => {
-    try {
-        const { parceiro } = req.params;
-        const { valor, numero_celular, usuario_id } = req.body;
-
-        if (!DEBITOPAY_SPLIT_PARTNERS[parceiro]) {
-            return response.error(res, `Parceiro não encontrado: ${parceiro}`, 404);
-        }
-
-        if (!valor || parseFloat(valor) < 10) {
-            return response.validationError(res, [
-                { field: 'valor', message: 'Valor mínimo é 10.00 MZN' }
-            ]);
-        }
-        if (!numero_celular) {
-            return response.validationError(res, [
-                { field: 'numero_celular', message: 'Número de celular é obrigatório' }
-            ]);
-        }
-        if (!usuario_id) {
-            return response.validationError(res, [
-                { field: 'usuario_id', message: 'ID do usuário é obrigatório' }
-            ]);
-        }
-
-        const phoneRegex = /^(84|85)\d{7}$/;
-        if (!phoneRegex.test(numero_celular)) {
-            return response.validationError(res, [
-                { field: 'numero_celular', message: 'Número M-Pesa inválido. Use formato: 84xxxxxxx ou 85xxxxxxx' }
-            ]);
-        }
-
-        const mongoUserId = usuario_id.toString().trim();
-
-        const paymentData = await processDebitoPayPaymentParceiro(parceiro, 'mpesa', {
-            valor, numero_celular, usuario_id: mongoUserId
-        });
-
-        const payment = await Payment.createPayment({
-            payment_id: paymentData.payment_id || `mpesa_parceiro_${parceiro}_${Date.now()}`,
-            provider: `mpesa_parceiro_${parceiro}`,
-            userId: mongoUserId,
-            apiKey: req.apiKeyData.key,
-            phone: numero_celular,
-            amount: valor,
-            currency: 'MZN',
-            credits_to_add: 0,
-            ip_address: req.clientIP,
-            user_agent: req.userAgent,
-            debitopay_data: {
-                payment_id: paymentData.payment_id,
-                source_id: paymentData.source_id,
-                status: paymentData.status
-            }
-        });
-
-        await req.logSuccess({
-            case: 'mpesa_parceiro_payment_created',
-            parceiro,
-            usuario_id: mongoUserId,
-            valor,
-            payment_id: paymentData.payment_id
-        });
-
-        const { breakdown_interno, ...paymentSemBreakdown } = paymentData;
-        const breakdown = breakdownPublico(breakdown_interno);
-
-        return response.success(res, {
-            message: 'Pedido M-Pesa enviado! Confirma o PIN no teu telemóvel.',
-            provider: `M-Pesa (Vodacom) via Débito Pay — Parceiro: ${parceiro}`,
-            payment: { ...paymentSemBreakdown, breakdown, payment_db_id: payment._id },
-            credits_remaining: req.apiKeyData.credits
-        });
-
-    } catch (error) {
-        console.error(`❌ Erro na rota payment/mpesa/parceiro/${req.params.parceiro}:`, error);
-        await req.logError(error.httpStatus || 500, error.rawError || error.message, {
-            case: 'mpesa_parceiro_payment',
-            parceiro: req.params.parceiro,
-            internal: error.internal || false
-        });
-
-        const status = error.isDebitoPayError ? (error.httpStatus || 400) : (error.httpStatus || 500);
-        return response.error(res, error.message, status);
-    }
-}));
 
 // ===== ROTA VISA/MASTERCARD =====
 
