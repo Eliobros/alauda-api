@@ -16,7 +16,7 @@ const paymentSchema = new mongoose.Schema({
     provider: {
         type: String,
         enum: ['mercadopago', 'mpesa', 'emola', 'mkesh', 'mpesa_direct', 'visa_mastercard', 'mpesa_parceiro_felio',
-          'mpesa_parceiro_helio'
+          'mpesa_parceiro_helio', 'payout_mpesa', 'payout_emola', 'payout_mkesh'
         ],
         required: true,
         lowercase: true,
@@ -74,7 +74,9 @@ const paymentSchema = new mongoose.Schema({
     // ===== STATUS =====
     status: {
         type: String,
-        enum: ['pending', 'approved', 'rejected', 'cancelled', 'refunded', 'in_process', 'completed'],
+        enum: ['pending', 'approved', 'rejected', 'cancelled', 'refunded', 'in_process', 'completed',
+          'failed', 'expired', 'chargeback'
+        ],
         default: 'pending',
         index: true
     },

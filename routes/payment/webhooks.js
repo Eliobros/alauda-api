@@ -103,9 +103,11 @@ router.post('/webhook/debitopay', response.asyncHandler(async (req, res) => {
         // - origin 'mozhost' (padrão) → credita coins
         // - outras origins (ex: 'eliobrospay') → só confirma o pagamento, sem crédito
         // - pagamentos legados de parceiro (mpesa_parceiro_*) → sem crédito
+        // - payouts (payout_*) → NUNCA creditam coins (dinheiro está a SAIR da plataforma)
         const isPagamentoParceiro = payment.provider && payment.provider.startsWith('mpesa_parceiro_');
+        const isPayout = payment.provider && payment.provider.startsWith('payout_');
         const isOriginCreditaCoins = !payment.origin || payment.origin === 'mozhost';
-        const creditaCoins = !isPagamentoParceiro && isOriginCreditaCoins;
+        const creditaCoins = !isPagamentoParceiro && !isPayout && isOriginCreditaCoins;
 
         // Idempotência: se já processamos esse payment_id com sucesso, não credita de novo.
         if (event === 'payment.completed' || data?.status === 'completed') {

@@ -1,0 +1,85 @@
+json
+Copy
+{
+  "success": true,
+  "payment": {
+    "id": "uuid-pending-payment",
+    "status": "success",
+    "provider_reference": "DD55JOL0XYT",
+    "payment_method": "mpesa",
+    "amount": 150,
+    "currency": "MZN"
+  }
+}
+pending
+A aguardar cliente / callback
+
+success
+Pago e creditado na wallet
+
+failed
+Recusado pelo gateway
+
+expired
+Sessão expirada
+
+Webhooks
+
+
+
+Eventos disparados
+Evento	Descrição
+payment.completed	Pagamento confirmado e creditado na wallet
+payment.failed	Pagamento recusado ou expirado
+payment.refunded	Pagamento reembolsado (Visa/MC)
+payment.chargeback	Chargeback recebido (Visa/MC)
+json
+Copy
+{
+  "event": "payment.completed",
+  "data": {
+    "payment_id": "uuid-pending-payment",
+    "merchant_id": "MERCHANT_UUID",
+    "wallet_code": "12345",
+    "amount": 150,
+    "currency": "MZN",
+    "method": "mpesa",
+    "reference": "DD55JOL0XYT",
+    "paid_at": "2026-04-18T12:02:15Z"
+  },
+  "timestamp": "2026-04-18T12:02:16Z"
+}
+javascript
+Copy
+import crypto from "crypto";
+
+function verifyWebhook(rawBody, signature, secret) {
+  const hash = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  return hash === signature;
+}
+Boas práticas de webhook
+
+• Responda HTTP 200 em menos de 5 segundos — caso contrário tentamos novamente.
+• Sempre valide a assinatura no header x-webhook-signature.
+• Trate cada payment_id de forma idempotente — eventos podem ser entregues mais de uma vez.
+• Configure múltiplas URLs de webhook (produção + staging) em Settings → Webhooks.
+Códigos de Erro
+Resposta padrão para erros — sempre com campos success e error explícitos.
+
+json
+Copy
+{
+  "success": false,
+  "error": "INVALID_API_KEY"
+}
+Status	Código	Quando ocorre
+400	Missing required fields	payment_method, merchant_id ou amount em falta
+400	Invalid amount	Valor abaixo do mínimo do método
+400	Unsupported payment method	payment_method não reconhecido
+401	INVALID_API_KEY	Bearer ausente ou hash não bate com merchant_api_keys
+403	WALLET_DOMAIN_NOT_ALLOWED	Origin difere do allowed_domain da wallet
+404	WALLET_CODE_NOT_FOUND	wallet_code inexistente
+400	INSUFFICIENT_MATURED_BALANCE	Saldo maturado insuficiente para payout B2C
+400	WALLET_INACTIVE	Carteira suspensa/eliminada ou método/currency incorretos para B2C
+429	Rate limit exceeded	Mais de 60 sessões/min para o mesmo merchant
+500	Internal server error	F

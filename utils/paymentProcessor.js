@@ -302,7 +302,7 @@ async function processPendingDebitoPayPayments() {
         const pendentes = await Payment.find({
             status: { $nin: ['completed', 'failed', 'refunded', 'chargeback', 'cancelled'] },
             $or: [
-                { provider: { $in: ['mpesa', 'emola', 'mkesh', 'visa_mastercard'] } },
+                { provider: { $in: ['mpesa', 'emola', 'mkesh', 'visa_mastercard', 'payout_mpesa', 'payout_emola', 'payout_mkesh'] } },
                 { provider: { $regex: /^mpesa_parceiro_/ } }
             ],
             'debitopay_data.payment_id': { $exists: true, $ne: null },
@@ -322,9 +322,10 @@ async function processPendingDebitoPayPayments() {
 
                 const status = result.payment.status;
                 const isParceiro = payment.provider.startsWith('mpesa_parceiro_');
-                // Só credita coins se origin for 'mozhost' (padrão) e NÃO for parceiro
+                const isPayout = payment.provider.startsWith('payout_');
+                // Só credita coins se origin for 'mozhost' (padrão), NÃO for parceiro e NÃO for payout
                 const isOriginCreditaCoins = !payment.origin || payment.origin === 'mozhost';
-                const creditaCoins = !isParceiro && isOriginCreditaCoins;
+                const creditaCoins = !isParceiro && !isPayout && isOriginCreditaCoins;
 
                 if (status === 'success' && payment.status !== 'completed') {
                     if (creditaCoins) {
