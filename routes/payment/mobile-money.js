@@ -1,5 +1,5 @@
 // ===== ROUTES/PAYMENT/MOBILE-MONEY.JS =====
-// Rotas de pagamento via Débito Pay: M-Pesa, E-Mola, mKesh e Visa/Mastercard.
+// Rotas de pagamento via Zumbo Pay: M-Pesa, E-Mola e Visa/Mastercard.
 
 const express = require('express');
 const router = express.Router();
@@ -8,18 +8,17 @@ const authenticateApiKey = require('../../middleware/auth');
 const response = require('../../utils/responseHandler');
 const Payment = require('../../models/Payment');
 const paymentProcessor = require('../../utils/paymentProcessor');
-const { processDebitoPayPayment } = require('../../services/debitopayService');
+const { processZumboPayPayment } = require('../../services/zumbopayService');
 
 // ===== FÁBRICA DE ROTAS MOBILE MONEY =====
-// mpesa, emola e mkesh seguem o mesmo fluxo — mudam apenas o regex do telefone,
-// as mensagens e os nomes de log. Para adicionar um novo método, basta criar
-// uma entrada aqui (e uma carteira em services/debitopayService.js).
+// mpesa e emola seguem o mesmo fluxo — mudam apenas o regex do telefone,
+// as mensagens e os nomes de log.
 const METODOS_MOBILE_MONEY = {
     mpesa: {
         phoneRegex: /^(84|85)\d{7}$/,
         phoneErrorMessage: 'Número M-Pesa inválido. Use formato: 84xxxxxxx ou 85xxxxxxx',
         paymentIdFallback: 'mpesa',
-        providerLabel: 'M-Pesa (Vodacom) via Débito Pay',
+        providerLabel: 'M-Pesa (Vodacom) via Zumbo Pay',
         successMessage: 'Pedido M-Pesa enviado! Confirma o PIN no teu telemóvel.',
         logCaseSuccess: 'mpesa_payment_created',
         logCaseError: 'mpesa_payment'
@@ -28,19 +27,10 @@ const METODOS_MOBILE_MONEY = {
         phoneRegex: /^(86|87)\d{7}$/,
         phoneErrorMessage: 'Número E-Mola inválido. Use formato: 86xxxxxxx ou 87xxxxxxx',
         paymentIdFallback: 'emola',
-        providerLabel: 'E-Mola (Movitel) via Débito Pay',
+        providerLabel: 'E-Mola (Movitel) via Zumbo Pay',
         successMessage: 'Pedido E-Mola enviado! Confirma o PIN no teu telemóvel.',
         logCaseSuccess: 'emola_payment_created',
         logCaseError: 'emola_payment'
-    },
-    mkesh: {
-        phoneRegex: null, // mKesh não valida formato de telefone
-        phoneErrorMessage: null,
-        paymentIdFallback: 'mkesh',
-        providerLabel: 'mKesh via Débito Pay',
-        successMessage: 'Pedido mKesh enviado! Confirma o PIN no teu telemóvel.',
-        logCaseSuccess: 'mkesh_payment_created',
-        logCaseError: 'mkesh_payment'
     }
 };
 
@@ -73,7 +63,7 @@ function criarRotaMobileMoney(metodo, config) {
 
             const mongoUserId = usuario_id.toString().trim();
 
-            const paymentData = await processDebitoPayPayment(metodo, {
+            const paymentData = await processZumboPayPayment(metodo, {
                 valor, numero_celular, usuario_id: mongoUserId
             });
 
@@ -91,8 +81,9 @@ function criarRotaMobileMoney(metodo, config) {
                 ip_address: req.clientIP,
                 user_agent: req.userAgent,
                 origin: origin || 'mozhost',
-                debitopay_data: {
+                zumbopay_data: {
                     payment_id: paymentData.payment_id,
+                    reference: paymentData.reference,
                     source_id: paymentData.source_id,
                     status: paymentData.status
                 }
@@ -121,7 +112,7 @@ function criarRotaMobileMoney(metodo, config) {
                 internal: error.internal || false
             });
 
-            const status = error.isDebitoPayError ? (error.httpStatus || 400) : 500;
+            const status = error.isZumboPayError ? (error.httpStatus || 400) : 500;
             return response.error(res, error.message, status);
         }
     }));
@@ -156,24 +147,19 @@ router.post('/visa_mastercard', authenticateApiKey, response.asyncHandler(async 
                 { field: 'usuario_id', message: 'ID do usuário é obrigatório' }
             ]);
         }
-        if (!return_url) {
-            return response.validationError(res, [
-                { field: 'return_url', message: 'return_url é obrigatório' }
-            ]);
-        }
 
         const mongoUserId = usuario_id.toString().trim();
 
-        const paymentData = await processDebitoPayPayment('visa_mastercard', {
+        const paymentData = await processZumboPayPayment('visa_mastercard', {
             valor,
             usuario_id: mongoUserId,
             customer_email,
             customer_name,
-            return_url
+            description: `Pagamento cartão #${mongoUserId}`
         });
 
         if (!paymentData.checkout_url) {
-            console.error('🚨 Débito Pay não retornou checkout_url para visa_mastercard:', paymentData);
+            console.error('🚨 Zumbo Pay não retornou checkout_url para visa_mastercard:', paymentData);
             throw new Error('Não foi possível gerar o link de pagamento. Tenta novamente em instantes.');
         }
 
@@ -191,8 +177,9 @@ router.post('/visa_mastercard', authenticateApiKey, response.asyncHandler(async 
             ip_address: req.clientIP,
             user_agent: req.userAgent,
             origin: origin || 'mozhost',
-            debitopay_data: {
+            zumbopay_data: {
                 payment_id: paymentData.payment_id,
+                reference: paymentData.reference,
                 source_id: paymentData.source_id,
                 status: paymentData.status
             }
@@ -209,7 +196,7 @@ router.post('/visa_mastercard', authenticateApiKey, response.asyncHandler(async 
 
         return response.success(res, {
             message: 'Link de pagamento por cartão criado. Redireciona o cliente para checkout_url.',
-            provider: 'Visa/Mastercard via Débito Pay',
+            provider: 'Visa/Mastercard via Zumbo Pay',
             payment: { ...paymentData, credits_to_receive: credits, payment_db_id: payment._id },
             credits_remaining: req.apiKeyData.credits
         });
@@ -221,31 +208,30 @@ router.post('/visa_mastercard', authenticateApiKey, response.asyncHandler(async 
             internal: error.internal || false
         });
 
-        const status = error.isDebitoPayError ? (error.httpStatus || 400) : 500;
+        const status = error.isZumboPayError ? (error.httpStatus || 400) : 500;
         return response.error(res, error.message, status);
     }
 }));
 
-// ===== CONSULTA DE STATUS DÉBITO PAY =====
+// ===== CONSULTA DE STATUS ZUMBO PAY =====
 
-// Consulta status de pagamento na Débito Pay (via nosso próprio banco, que é atualizado pelo webhook)
-router.get('/debitopay/status/:payment_id', authenticateApiKey, response.asyncHandler(async (req, res) => {
+router.get('/zumbopay/status/:payment_id', authenticateApiKey, response.asyncHandler(async (req, res) => {
     try {
         const { payment_id } = req.params;
 
         const payment = await Payment.findOne({
-            'debitopay_data.payment_id': payment_id   // ← corrige aqui: payment_id, não data.id
+            'zumbopay_data.payment_id': payment_id
         });
 
         if (!payment) {
             console.warn(`⚠️ Pagamento não encontrado para payment_id: ${payment_id}`);
-            return response.error(res, 'Pagamento não encontrado', 404);   // ← precisa retornar resposta aqui!
+            return response.error(res, 'Pagamento não encontrado', 404);
         }
 
-        await req.logSuccess({ case: 'debitopay_status_checked', payment_id, status: payment.status });
+        await req.logSuccess({ case: 'zumbopay_status_checked', payment_id, status: payment.status });
 
         return response.success(res, {
-            provider: 'Débito Pay',
+            provider: 'Zumbo Pay',
             payment: {
                 payment_id,
                 status: payment.status,
@@ -256,8 +242,8 @@ router.get('/debitopay/status/:payment_id', authenticateApiKey, response.asyncHa
         });
 
     } catch (error) {
-        console.error('❌ Erro na rota payment/debitopay/status:', error);
-        await req.logError(500, error.message, { case: 'debitopay_status' });
+        console.error('❌ Erro na rota payment/zumbopay/status:', error);
+        await req.logError(500, error.message, { case: 'zumbopay_status' });
         return response.error(res, error.message, 500);
     }
 }));

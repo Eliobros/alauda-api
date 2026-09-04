@@ -1,5 +1,5 @@
 // ===== ROUTES/PAYMENT/WEBHOOKS.JS =====
-// Webhooks de confirmação de pagamento (MercadoPago e Débito Pay).
+// Webhooks de confirmação de pagamento (MercadoPago e Zumbo Pay).
 
 const express = require('express');
 const router = express.Router();
@@ -8,185 +8,747 @@ const crypto = require('crypto');
 const response = require('../../utils/responseHandler');
 const Payment = require('../../models/Payment');
 const paymentProcessor = require('../../utils/paymentProcessor');
-const { DEBITOPAY_WEBHOOK_SECRET } = require('../../services/debitopayService');
+const {
+    ZUMBOPAY_WEBHOOK_SECRET
+} = require('../../services/zumbopayService');
 
-// ===== WEBHOOK MERCADOPAGO =====
+// ============================================================
+// WEBHOOK MERCADOPAGO
+// ============================================================
 
-router.post('/webhook/mercadopago', response.asyncHandler(async (req, res) => {
-    try {
-        console.log('📩 Webhook MercadoPago recebido:', req.body);
+router.post(
+    '/webhook/mercadopago',
+    response.asyncHandler(async (req, res) => {
+        try {
+            console.log('📩 Webhook MercadoPago recebido:', req.body);
 
-        const result = await paymentProcessor.processMercadoPagoWebhook(req.body);
+            const result =
+                await paymentProcessor.processMercadoPagoWebhook(req.body);
 
-        if (result.success) {
-            console.log('✅ Webhook processado:', result.message);
-        } else {
-            console.log('⚠️  Webhook não processado:', result.message);
-        }
-
-        return res.status(200).json({ received: true, ...result });
-
-    } catch (error) {
-        console.error('❌ Erro no webhook MercadoPago:', error);
-        return res.status(500).json({ error: error.message });
-    }
-}));
-
-// ===== WEBHOOK DÉBITO PAY =====
-
-// Webhook Débito Pay — confirma pagamento e credita as coins do usuário.
-// IMPORTANTE: confirma com a doc/suporte da Débito Pay qual header eles usam
-// para assinar o payload (abaixo assume 'x-debitopay-signature', ajusta se for diferente).
-// Formato real documentado:
-// { "event": "payment.completed", "data": { "payment_id", "merchant_id", "wallet_code",
-//   "amount", "currency", "method", "reference", "paid_at" }, "timestamp": "..." }
-// Header: X-Webhook-Signature (HMAC-SHA256 do raw body, SEM prefixo "sha256=")
-// Best practices exigidas pela Débito Pay: responder 200 em <5s, validar assinatura sempre,
-// tratar cada payment_id de forma idempotente (evento pode chegar mais de uma vez).
-router.post('/webhook/debitopay', response.asyncHandler(async (req, res) => {
-    try {
-        const secretLimpo = (DEBITOPAY_WEBHOOK_SECRET || '').trim();
-
-        const rawSignature = req.headers['x-webhook-signature'] || '';
-        const signature = (rawSignature.startsWith('sha256=') ? rawSignature.slice(7) : rawSignature).trim();
-
-        const payload = Buffer.isBuffer(req.rawBody)
-            ? req.rawBody.toString('utf8')
-            : (req.rawBody || '');
-
-        const timestamp = req.headers['x-debitopay-timestamp'] || '';
-
-        if (!signature) {
-            console.warn('⚠️ Webhook Débito Pay sem header de assinatura — rejeitado.');
-            return res.status(401).json({ error: 'Assinatura ausente' });
-        }
-
-        // FÓRMULA CONFIRMADA: HMAC-SHA256(secret_com_prefixo_whsec, timestamp + "." + rawBody)
-        const calculatedSig = crypto
-            .createHmac('sha256', secretLimpo)
-            .update(`${timestamp}.${payload}`)
-            .digest('hex');
-
-        const assinaturaValida = signature === calculatedSig;
-
-        if (!assinaturaValida) {
-            console.warn(`⚠️ Assinatura inválida no webhook Débito Pay (sig_len=${signature.length}, ts=${timestamp})`);
-            return res.status(401).json({ error: 'Assinatura inválida' });
-        }
-
-        // Responde 200 imediatamente após validar a assinatura; processa em seguida.
-        res.status(200).json({ received: true });
-
-        const { event, data } = req.body || {};
-
-        // Débito Pay manda o id no TOPO do body E dentro de `data` — não existe
-        // `data.payment_id`. Aceita qualquer um dos três formatos.
-        const paymentId = data?.payment_id || data?.id || req.body?.id;
-
-        if (!paymentId) {
-            console.warn('⚠️ Webhook Débito Pay sem id em lugar nenhum, ignorando:', req.body);
-            return;
-        }
-
-        console.log(`📩 Webhook Débito Pay [${event || data?.status || 'sem event'}]:`, data);
-
-        const payment = await Payment.findOne({
-            'debitopay_data.payment_id': paymentId
-        });
-
-        if (!payment) {
-            console.warn(`⚠️ Pagamento não encontrado para payment_id: ${paymentId}`);
-            return;
-        }
-
-        // Define se este pagamento deve creditar coins no MozHost:
-        // - origin 'mozhost' (padrão) → credita coins
-        // - outras origins (ex: 'eliobrospay') → só confirma o pagamento, sem crédito
-        // - pagamentos legados de parceiro (mpesa_parceiro_*) → sem crédito
-        // - payouts (payout_*) → NUNCA creditam coins (dinheiro está a SAIR da plataforma)
-        const isPagamentoParceiro = payment.provider && payment.provider.startsWith('mpesa_parceiro_');
-        const isPayout = payment.provider && payment.provider.startsWith('payout_');
-        const isOriginCreditaCoins = !payment.origin || payment.origin === 'mozhost';
-        const creditaCoins = !isPagamentoParceiro && !isPayout && isOriginCreditaCoins;
-
-        // Idempotência: se já processamos esse payment_id com sucesso, não credita de novo.
-        if (event === 'payment.completed' || data?.status === 'completed') {
-            if (payment.status === 'completed') {
-                console.log(`ℹ️ Pagamento ${paymentId} já estava completed, ignorando evento duplicado.`);
-                return;
-            }
-
-            if (creditaCoins) {
-                await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
-                    method: 'POST',
-                    headers: {
-                        'x-internal-key': process.env.INTERNAL_SECRET_KEY,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        userId: payment.userId,
-                        coins: payment.credits_to_add,
-                        externalPaymentId: payment.payment_id
-                    })
-                });
+            if (result.success) {
+                console.log('✅ Webhook processado:', result.message);
             } else {
-                console.log(`ℹ️ Pagamento ${paymentId} confirmado (origin=${payment.origin || 'mozhost'}, provider=${payment.provider}) — sem crédito de coins no MozHost.`);
+                console.log('⚠️ Webhook não processado:', result.message);
             }
 
-            payment.status = 'completed';
-            if (data?.reference) payment.debitopay_data.reference = data.reference;
-            if (data?.provider_reference) payment.debitopay_data.provider_reference = data.provider_reference;
-            if (data?.paid_at) payment.debitopay_data.paid_at = data.paid_at;
-            await payment.save();
+            return res.status(200).json({
+                received: true,
+                ...result
+            });
 
-            console.log(`✅ Pagamento Débito Pay confirmado: ${data?.amount ?? payment.amount} ${data?.currency || payment.currency}`);
+        } catch (error) {
+            console.error(
+                '❌ Erro no webhook MercadoPago:',
+                error
+            );
 
-        } else if (event === 'payment.failed' || data?.status === 'failed') {
-            if (payment.status !== 'failed') {
-                payment.status = 'failed';
-                await payment.save();
-                console.log(`❌ Pagamento Débito Pay falhou: ${paymentId}`);
+            return res.status(500).json({
+                error: error.message
+            });
+        }
+    })
+);
+
+
+// ============================================================
+// WEBHOOK ZUMBO PAY
+// ============================================================
+//
+// Header esperado:
+//
+// X-Zumbo-Signature: <HMAC-SHA256>
+//
+// Assinatura:
+//
+// HMAC-SHA256(webhook_secret, raw_body)
+//
+// Eventos suportados:
+//
+// payment.succeeded
+// payment.failed
+// payment.refunded
+// payout.completed
+// payout.failed
+// subscription.charged
+//
+// ============================================================
+
+router.post(
+    '/webhook/zumbopay',
+    response.asyncHandler(async (req, res) => {
+
+        try {
+
+            // ====================================================
+            // 1. SECRET
+            // ====================================================
+
+            const secret = (
+                ZUMBOPAY_WEBHOOK_SECRET || ''
+            ).trim();
+
+            if (!secret) {
+
+                console.error(
+                    '❌ ZUMBOPAY_WEBHOOK_SECRET não configurado.'
+                );
+
+                return res.status(500).json({
+                    error: 'Webhook secret não configurado'
+                });
             }
 
-        } else if (event === 'payment.refunded') {
-            // Só ocorre para Visa/Mastercard. Remove as coins que foram creditadas
-            // (apenas se o pagamento tinha creditado coins — origin mozhost).
-            if (payment.status === 'completed' && creditaCoins) {
-                await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
-                    method: 'POST',
-                    headers: {
-                        'x-internal-key': process.env.INTERNAL_SECRET_KEY,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        userId: payment.userId,
-                        coins: -payment.credits_to_add
-                    })
+
+            // ====================================================
+            // 2. ASSINATURA RECEBIDA
+            // ====================================================
+
+            // IMPORTANTE:
+            // A ZumboPay envia:
+            //
+            // X-Zumbo-Signature
+            //
+            // Express transforma automaticamente os headers
+            // para lowercase.
+
+            const rawSignature =
+                req.headers['x-zumbo-signature'] || '';
+
+            const signature =
+                String(rawSignature).trim();
+
+
+            if (!signature) {
+
+                console.warn(
+                    '⚠️ Webhook Zumbo Pay sem assinatura.'
+                );
+
+                return res.status(401).json({
+                    error: 'Assinatura ausente'
+                });
+            }
+
+
+            // ====================================================
+            // 3. RAW BODY
+            // ====================================================
+
+            let payload;
+
+            if (Buffer.isBuffer(req.rawBody)) {
+
+                payload = req.rawBody;
+
+            } else if (typeof req.rawBody === 'string') {
+
+                payload = Buffer.from(
+                    req.rawBody,
+                    'utf8'
+                );
+
+            } else {
+
+                // Fallback.
+                //
+                // Idealmente req.rawBody deve existir.
+                // A assinatura oficial deve ser calculada
+                // sobre o body original recebido.
+
+                payload = Buffer.from(
+                    JSON.stringify(req.body || {}),
+                    'utf8'
+                );
+            }
+
+
+            // ====================================================
+            // 4. CALCULAR HMAC
+            // ====================================================
+
+            const calculatedSignature =
+                crypto
+                    .createHmac('sha256', secret)
+                    .update(payload)
+                    .digest('hex');
+
+
+            // ====================================================
+            // 5. VALIDAR ASSINATURA
+            // ====================================================
+
+            const receivedBuffer =
+                Buffer.from(
+                    signature,
+                    'utf8'
+                );
+
+            const calculatedBuffer =
+                Buffer.from(
+                    calculatedSignature,
+                    'utf8'
+                );
+
+
+            // timingSafeEqual exige buffers
+            // com o mesmo tamanho.
+
+            if (
+                receivedBuffer.length !==
+                calculatedBuffer.length
+            ) {
+
+                console.warn(
+                    '⚠️ Assinatura Zumbo Pay inválida.'
+                );
+
+                return res.status(401).json({
+                    error: 'Assinatura inválida'
+                });
+            }
+
+
+            const signatureValid =
+                crypto.timingSafeEqual(
+                    receivedBuffer,
+                    calculatedBuffer
+                );
+
+
+            if (!signatureValid) {
+
+                console.warn(
+                    '⚠️ Assinatura Zumbo Pay inválida.'
+                );
+
+                return res.status(401).json({
+                    error: 'Assinatura inválida'
+                });
+            }
+
+
+            console.log(
+                '✅ Assinatura Zumbo Pay válida.'
+            );
+
+
+            // ====================================================
+            // 6. LER PAYLOAD
+            // ====================================================
+
+            const body = req.body || {};
+
+            const event =
+                body.type || body.event;
+
+            const data =
+                body.data || {};
+
+
+            console.log(
+                `📩 Evento Zumbo Pay recebido: ${event || 'sem tipo'}`
+            );
+
+            console.log(
+                '📦 Dados:',
+                data
+            );
+
+
+            // ====================================================
+            // 7. IDENTIFICAR PAYMENT ID
+            // ====================================================
+
+            const paymentId =
+                data.payment_id ||
+                data.id ||
+                data.subscription_id;
+
+
+            if (!paymentId) {
+
+                console.warn(
+                    '⚠️ Webhook Zumbo Pay sem payment_id:',
+                    body
+                );
+
+                // O webhook foi recebido e a assinatura
+                // é válida, portanto não é necessário
+                // pedir reenvio.
+
+                return res.status(200).json({
+                    received: true,
+                    processed: false,
+                    message: 'payment_id ausente'
+                });
+            }
+
+
+            // ====================================================
+            // 8. ENCONTRAR PAGAMENTO
+            // ====================================================
+
+            const payment =
+                await Payment.findOne({
+                    $or: [
+                        {
+                            'zumbopay_data.payment_id':
+                                paymentId
+                        },
+                        {
+                            'zumbopay_data.reference':
+                                paymentId
+                        },
+                        {
+                            payment_id:
+                                paymentId
+                        }
+                    ]
                 });
 
-                payment.status = 'refunded';
-                await payment.save();
-                console.log(`↩️ Pagamento Débito Pay reembolsado, coins removidos: ${paymentId}`);
-            } else if (payment.status === 'completed') {
-                payment.status = 'refunded';
-                await payment.save();
-                console.log(`↩️ Pagamento Débito Pay reembolsado (origin=${payment.origin || 'mozhost'} — sem coins para remover): ${paymentId}`);
+
+            if (!payment) {
+
+                console.warn(
+                    `⚠️ Pagamento não encontrado: ${paymentId}`
+                );
+
+                return res.status(200).json({
+                    received: true,
+                    processed: false,
+                    message: 'Pagamento não encontrado'
+                });
             }
 
-        } else if (event === 'payment.chargeback') {
-            payment.status = 'chargeback';
-            await payment.save();
-            console.warn(`🚨 CHARGEBACK recebido para pagamento ${paymentId} — revisar manualmente.`);
-        } else {
-            console.log(`ℹ️ Evento Débito Pay não tratado: ${event || 'sem event'} (status=${data?.status})`);
-        }
 
-    } catch (error) {
-        console.error('❌ Erro no webhook Débito Pay:', error);
-        if (!res.headersSent) {
-            return res.status(500).json({ error: 'Erro interno no webhook' });
+            // ====================================================
+            // 9. VERIFICAR ORIGEM
+            // ====================================================
+
+            const isPagamentoParceiro =
+                payment.provider &&
+                payment.provider.startsWith(
+                    'mpesa_parceiro_'
+                );
+
+            const isPayout =
+                payment.provider &&
+                payment.provider.startsWith(
+                    'payout_'
+                );
+
+            const isOriginCreditaCoins =
+                !payment.origin ||
+                payment.origin === 'mozhost';
+
+            const creditaCoins =
+                !isPagamentoParceiro &&
+                !isPayout &&
+                isOriginCreditaCoins;
+
+
+            // ====================================================
+            // 10. PAYMENT SUCCEEDED
+            // ====================================================
+
+            if (
+                event === 'payment.succeeded' ||
+                data.status === 'succeeded'
+            ) {
+
+                // ----------------------------------------------
+                // Idempotência
+                // ----------------------------------------------
+
+                if (
+                    payment.status === 'completed'
+                ) {
+
+                    console.log(
+                        `ℹ️ Pagamento ${paymentId} já está completed.`
+                    );
+
+                    return res.status(200).json({
+                        received: true,
+                        processed: true,
+                        duplicate: true
+                    });
+                }
+
+
+                // ----------------------------------------------
+                // Creditar coins
+                // ----------------------------------------------
+
+                if (creditaCoins) {
+
+                    try {
+
+                        const creditResponse =
+                            await fetch(
+                                `${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`,
+                                {
+                                    method: 'POST',
+
+                                    headers: {
+                                        'x-internal-key':
+                                            process.env.INTERNAL_SECRET_KEY,
+
+                                        'Content-Type':
+                                            'application/json'
+                                    },
+
+                                    body: JSON.stringify({
+                                        userId:
+                                            payment.userId,
+
+                                        coins:
+                                            payment.credits_to_add,
+
+                                        externalPaymentId:
+                                            payment.payment_id
+                                    })
+                                }
+                            );
+
+
+                        if (!creditResponse.ok) {
+
+                            const errorText =
+                                await creditResponse.text();
+
+                            console.error(
+                                '❌ Erro ao creditar coins:',
+                                errorText
+                            );
+
+                            throw new Error(
+                                'Falha ao creditar coins'
+                            );
+                        }
+
+
+                        console.log(
+                            `🪙 ${payment.credits_to_add} coins creditadas para ${payment.userId}`
+                        );
+
+                    } catch (creditError) {
+
+                        console.error(
+                            '❌ Erro no crédito de coins:',
+                            creditError
+                        );
+
+                        // Não marcar como completed se o
+                        // crédito falhou.
+
+                        throw creditError;
+                    }
+
+                } else {
+
+                    console.log(
+                        `ℹ️ Pagamento ${paymentId} confirmado sem crédito de coins. ` +
+                        `origin=${payment.origin || 'mozhost'}, ` +
+                        `provider=${payment.provider}`
+                    );
+                }
+
+
+                // ----------------------------------------------
+                // Atualizar pagamento
+                // ----------------------------------------------
+
+                payment.status =
+                    'completed';
+
+
+                if (data.reference) {
+
+                    payment.zumbopay_data =
+                        payment.zumbopay_data || {};
+
+                    payment.zumbopay_data.reference =
+                        data.reference;
+                }
+
+
+                if (data.provider_reference) {
+
+                    payment.zumbopay_data =
+                        payment.zumbopay_data || {};
+
+                    payment.zumbopay_data.provider_reference =
+                        data.provider_reference;
+                }
+
+
+                if (data.paid_at) {
+
+                    payment.zumbopay_data =
+                        payment.zumbopay_data || {};
+
+                    payment.zumbopay_data.paid_at =
+                        data.paid_at;
+                }
+
+
+                // Guardar event ID se o seu schema
+                // permitir este campo.
+
+                if (body.id) {
+
+                    payment.zumbopay_data =
+                        payment.zumbopay_data || {};
+
+                    payment.zumbopay_data.event_id =
+                        body.id;
+                }
+
+
+                await payment.save();
+
+
+                console.log(
+                    `✅ Pagamento Zumbo Pay confirmado: ` +
+                    `${paymentId} - ` +
+                    `${data.amount ?? payment.amount} ` +
+                    `${data.currency || payment.currency}`
+                );
+
+
+                return res.status(200).json({
+                    received: true,
+                    processed: true,
+                    status: 'completed'
+                });
+            }
+
+
+            // ====================================================
+            // 11. PAYMENT FAILED
+            // ====================================================
+
+            if (
+                event === 'payment.failed' ||
+                data.status === 'failed'
+            ) {
+
+                if (
+                    payment.status !== 'failed'
+                ) {
+
+                    payment.status =
+                        'failed';
+
+                    await payment.save();
+
+                    console.log(
+                        `❌ Pagamento Zumbo Pay falhou: ${paymentId}`
+                    );
+                }
+
+
+                return res.status(200).json({
+                    received: true,
+                    processed: true,
+                    status: 'failed'
+                });
+            }
+
+
+            // ====================================================
+            // 12. PAYMENT REFUNDED
+            // ====================================================
+
+            if (
+                event === 'payment.refunded'
+            ) {
+
+                if (
+                    payment.status === 'completed' &&
+                    creditaCoins
+                ) {
+
+                    const refundResponse =
+                        await fetch(
+                            `${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`,
+                            {
+                                method: 'POST',
+
+                                headers: {
+                                    'x-internal-key':
+                                        process.env.INTERNAL_SECRET_KEY,
+
+                                    'Content-Type':
+                                        'application/json'
+                                },
+
+                                body: JSON.stringify({
+                                    userId:
+                                        payment.userId,
+
+                                    coins:
+                                        -payment.credits_to_add,
+
+                                    externalPaymentId:
+                                        payment.payment_id
+                                })
+                            }
+                        );
+
+
+                    if (!refundResponse.ok) {
+
+                        throw new Error(
+                            'Falha ao remover coins do reembolso'
+                        );
+                    }
+
+
+                    payment.status =
+                        'refunded';
+
+                    await payment.save();
+
+
+                    console.log(
+                        `↩️ Reembolso processado: ${paymentId}`
+                    );
+
+                } else if (
+                    payment.status === 'completed'
+                ) {
+
+                    payment.status =
+                        'refunded';
+
+                    await payment.save();
+
+
+                    console.log(
+                        `↩️ Pagamento reembolsado sem remoção de coins: ${paymentId}`
+                    );
+                }
+
+
+                return res.status(200).json({
+                    received: true,
+                    processed: true,
+                    status: 'refunded'
+                });
+            }
+
+
+            // ====================================================
+            // 13. PAYOUT
+            // ====================================================
+
+            if (
+                event === 'payout.completed' ||
+                event === 'payout.failed'
+            ) {
+
+                const newStatus =
+                    event === 'payout.completed'
+                        ? 'completed'
+                        : 'failed';
+
+
+                if (
+                    payment.status !==
+                    newStatus
+                ) {
+
+                    payment.status =
+                        newStatus;
+
+
+                    if (
+                        data.provider_reference
+                    ) {
+
+                        payment.zumbopay_data =
+                            payment.zumbopay_data || {};
+
+                        payment.zumbopay_data.provider_reference =
+                            data.provider_reference;
+                    }
+
+
+                    await payment.save();
+
+
+                    console.log(
+                        `💰 Payout Zumbo Pay ${newStatus}: ${paymentId}`
+                    );
+                }
+
+
+                return res.status(200).json({
+                    received: true,
+                    processed: true,
+                    status: newStatus
+                });
+            }
+
+
+            // ====================================================
+            // 14. SUBSCRIPTION
+            // ====================================================
+
+            if (
+                event === 'subscription.charged'
+            ) {
+
+                console.log(
+                    `🔄 Subscrição Zumbo Pay cobrada: ${paymentId}`
+                );
+
+
+                return res.status(200).json({
+                    received: true,
+                    processed: true,
+                    status: 'subscription_charged'
+                });
+            }
+
+
+            // ====================================================
+            // 15. EVENTO DESCONHECIDO
+            // ====================================================
+
+            console.log(
+                `ℹ️ Evento Zumbo Pay não tratado: ${event || 'sem event'} ` +
+                `(status=${data.status || 'sem status'})`
+            );
+
+
+            return res.status(200).json({
+                received: true,
+                processed: false,
+                message: 'Evento não tratado'
+            });
+
+
+        } catch (error) {
+
+            console.error(
+                '❌ Erro no webhook Zumbo Pay:',
+                error
+            );
+
+
+            if (!res.headersSent) {
+
+                return res.status(500).json({
+                    error: 'Erro interno no webhook'
+                });
+            }
         }
-    }
-}));
+    })
+);
+
 
 module.exports = router;
+

@@ -1,5 +1,5 @@
 // ===== ROUTES/PAYMENT/PAYOUT.JS =====
-// Payout B2C via Débito Pay: envia dinheiro para o telemóvel do cliente
+// Payout B2C via Zumbo Pay: envia dinheiro para o telemóvel do cliente
 // (usado no fluxo de depósito do EliobrosPay: PayPal capturado → M-Pesa ao cliente).
 
 const express = require('express');
@@ -8,31 +8,30 @@ const router = express.Router();
 const authenticateApiKey = require('../../middleware/auth');
 const response = require('../../utils/responseHandler');
 const Payment = require('../../models/Payment');
-const { processDebitoPayPayout, checkWalletBalance } = require('../../services/debitopayService');
+const { processZumboPayPayout, checkWalletBalance } = require('../../services/zumbopayService');
 
-// Métodos suportados para payout (mesma nomenclatura e regex da cobrança em mobile-money.js)
+// Métodos suportados para payout
 const METODOS_PAYOUT = {
-    mpesa: { phoneRegex: /^(84|85)\d{7}$/, name: 'M-Pesa (Vodacom) via Débito Pay' },
-    emola: { phoneRegex: /^(86|87)\d{7}$/, name: 'E-Mola (Movitel) via Débito Pay' },
-    mkesh: { phoneRegex: null, name: 'mKesh via Débito Pay' }
+    mpesa: { phoneRegex: /^(84|85)\d{7}$/, name: 'M-Pesa (Vodacom) via Zumbo Pay' },
+    emola: { phoneRegex: /^(86|87)\d{7}$/, name: 'E-Mola (Movitel) via Zumbo Pay' }
 };
 
 // Segurança: payout é dinheiro a SAIR da carteira. Por padrão permite qualquer origin
-// (comportamento atual), mas em produção defina DEBITOPAY_PAYOUT_ALLOWED_ORIGINS no .env
+// (comportamento atual), mas em produção defina ZUMBOPAY_PAYOUT_ALLOWED_ORIGINS no .env
 // (separado por vírgula, ex: "eliobrospay") para restringir quem pode enviar.
-const PAYOUT_ALLOWED_ORIGINS = (process.env.DEBITOPAY_PAYOUT_ALLOWED_ORIGINS || '')
+const PAYOUT_ALLOWED_ORIGINS = (process.env.ZUMBOPAY_PAYOUT_ALLOWED_ORIGINS || '')
     .split(',')
     .map(s => s.trim().toLowerCase())
     .filter(Boolean);
 
 /**
- * POST /api/payment/debitopay/transfer
+ * POST /api/payment/zumbopay/transfer
  * Envia dinheiro (payout B2C) para um número. Body:
  *   { valor, numero_celular, usuario_id, metodo?, reference?, origin? }
- * A Débito Pay devolve payment_id + status (pending → success/failed/expired),
- * confirmado pelo webhook payment.completed.
+ * A Zumbo Pay devolve payment_id + status (pending → success/failed),
+ * confirmado pelo webhook payment.succeeded/failed.
  */
-router.post('/debitopay/transfer', authenticateApiKey, response.asyncHandler(async (req, res) => {
+router.post('/zumbopay/transfer', authenticateApiKey, response.asyncHandler(async (req, res) => {
     try {
         const { valor, numero_celular, usuario_id, metodo = 'mpesa', reference, origin } = req.body;
 
@@ -55,7 +54,7 @@ router.post('/debitopay/transfer', authenticateApiKey, response.asyncHandler(asy
         const config = METODOS_PAYOUT[metodo];
         if (!config) {
             return response.validationError(res, [
-                { field: 'metodo', message: 'Método não suportado para payout. Use: mpesa, emola ou mkesh' }
+                { field: 'metodo', message: 'Método não suportado para payout. Use: mpesa ou emola' }
             ]);
         }
 
@@ -80,12 +79,12 @@ router.post('/debitopay/transfer', authenticateApiKey, response.asyncHandler(asy
         if (reference) {
             const existing = await Payment.findOne({ 'metadata.payout_reference': reference });
             if (existing) {
-                await req.logSuccess({ case: 'payout_duplicate_reference', reference, payment_id: existing.debitopay_data?.payment_id });
+                await req.logSuccess({ case: 'payout_duplicate_reference', reference, payment_id: existing.zumbopay_data?.payment_id });
                 return response.success(res, {
                     message: 'Payout já processado para esta reference. Reutilizando o existente.',
                     provider: config.name,
                     payout: {
-                        payment_id: existing.debitopay_data?.payment_id || existing.payment_id,
+                        payment_id: existing.zumbopay_data?.payment_id || existing.payment_id,
                         status: existing.status,
                         reference,
                         payout_db_id: existing._id,
@@ -95,7 +94,7 @@ router.post('/debitopay/transfer', authenticateApiKey, response.asyncHandler(asy
             }
         }
 
-        const payoutData = await processDebitoPayPayout({
+        const payoutData = await processZumboPayPayout({
             valor,
             numero_celular: localPhone,
             usuario_id: mongoUserId,
@@ -104,8 +103,6 @@ router.post('/debitopay/transfer', authenticateApiKey, response.asyncHandler(asy
         });
 
         // Grava o payout no banco para consulta de status e auditoria.
-        // credits_to_add = 0: payout é dinheiro SÁINDO da plataforma — nunca credita coins.
-        // metadata.payout_reference guarda a reference do cliente para idempotência.
         const payment = await Payment.createPayment({
             payment_id: payoutData.payment_id || `payout_${Date.now()}`,
             provider: `payout_${metodo}`,
@@ -120,11 +117,14 @@ router.post('/debitopay/transfer', authenticateApiKey, response.asyncHandler(asy
             user_agent: req.userAgent,
             origin: originFinal,
             metadata: { payout_reference: reference || payoutData.reference },
-            debitopay_data: {
+            zumbopay_data: {
                 payment_id: payoutData.payment_id,
+                reference: payoutData.reference,
                 source_id: payoutData.source_id,
                 status: payoutData.status,
-                reference: payoutData.provider_reference || reference
+                provider_reference: payoutData.provider_reference || reference,
+                fee_amount: payoutData.fee_amount,
+                net_amount: payoutData.net_amount
             }
         });
 
@@ -144,37 +144,36 @@ router.post('/debitopay/transfer', authenticateApiKey, response.asyncHandler(asy
         });
 
     } catch (error) {
-        console.error('❌ Erro na rota payment/debitopay/transfer:', error);
+        console.error('❌ Erro na rota payment/zumbopay/transfer:', error);
         await req.logError(error.httpStatus || 500, error.rawError || error.message, {
             case: 'payout',
             internal: error.internal || false
         });
 
-        const status = error.isDebitoPayError ? (error.httpStatus || 400) : 500;
+        const status = error.isZumboPayError ? (error.httpStatus || 400) : 500;
         return response.error(res, error.message, status);
     }
 }));
 
 /**
- * GET /api/payment/debitopay/balance
- * Consulta o saldo da wallet Débito Pay (endpoint wallet-balance da Débito Pay).
+ * GET /api/payment/zumbopay/balance
+ * Consulta o saldo das wallets Zumbo Pay.
  * Usado antes de um payout para garantir que há saldo para enviar.
  */
-router.get('/debitopay/balance', authenticateApiKey, response.asyncHandler(async (req, res) => {
+router.get('/zumbopay/balance', authenticateApiKey, response.asyncHandler(async (req, res) => {
     try {
-        // wallet_code opcional (query param) — padrão: wallet M-Pesa configurada no .env
-        const walletCode = req.query.wallet_code ? String(req.query.wallet_code) : null;
-        const { balance, currency, wallet_code } = await checkWalletBalance(walletCode);
+        const walletId = req.query.wallet_id || null;
+        const walletData = await checkWalletBalance(walletId);
 
-        await req.logSuccess({ case: 'wallet_balance_checked', balance, wallet_code });
+        await req.logSuccess({ case: 'wallet_balance_checked', balance: walletData.balance, wallet_id: walletData.wallet_id });
 
         return response.success(res, {
-            provider: 'Débito Pay',
-            wallet: { wallet_code, balance, currency }
+            provider: 'Zumbo Pay',
+            wallet: walletData
         });
 
     } catch (error) {
-        console.error('❌ Erro na rota payment/debitopay/balance:', error);
+        console.error('❌ Erro na rota payment/zumbopay/balance:', error);
         await req.logError(error.httpStatus || 500, error.rawError || error.message, {
             case: 'wallet_balance',
             internal: error.internal || false

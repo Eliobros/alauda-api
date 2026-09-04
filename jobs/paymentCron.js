@@ -12,17 +12,17 @@ function startPaymentCronJobs() {
 
     // ===== JOB 1: Processar pagamentos pendentes ====
 
-// ===== JOB 1.5: Fallback Débito Pay (consulta status direto, sem depender do webhook) =====
+// ===== JOB 1.5: Fallback Zumbo Pay (consulta status direto, sem depender do webhook) =====
     // Executa a cada 1 minuto — mais frequente pois é o fallback ativo enquanto o
-    // webhook da Débito Pay está com problema de assinatura (ver ticket de suporte)
+    // webhook da Zumbo Pay está com problema de assinatura (ver ticket de suporte)
     cron.schedule('* * * * *', async () => {
         try {
-            const result = await paymentProcessor.processPendingDebitoPayPayments();
+            const result = await paymentProcessor.processPendingZumboPayPayments();
             if (result.total > 0) {
-                console.log(`✅ [CRON DébitoPay] Verificados: ${result.total} | Creditados: ${result.credited} | Falhas: ${result.failed}`);
+                console.log(`✅ [CRON ZumboPay] Verificados: ${result.total} | Creditados: ${result.credited} | Falhas: ${result.failed}`);
             }
         } catch (error) {
-            console.error('❌ [CRON DébitoPay] Erro:', error.message);
+            console.error('❌ [CRON ZumboPay] Erro:', error.message);
         }
     });
     // Executa a cada 5 minutos

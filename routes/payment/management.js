@@ -27,31 +27,25 @@ router.get('/info', (req, res) => {
                 name: 'M-Pesa',
                 methods: ['Mobile Money'],
                 region: 'Moçambique (Vodacom)',
-                gateway: 'Débito Pay'
+                gateway: 'Zumbo Pay'
             },
             {
                 name: 'E-Mola',
                 methods: ['Mobile Money'],
                 region: 'Moçambique (Movitel)',
-                gateway: 'Débito Pay'
-            },
-            {
-                name: 'mKesh',
-                methods: ['Mobile Money'],
-                region: 'Moçambique',
-                gateway: 'Débito Pay'
+                gateway: 'Zumbo Pay'
             },
             {
                 name: 'Visa/Mastercard',
                 methods: ['Cartão Internacional'],
                 region: 'Global',
-                gateway: 'Débito Pay'
+                gateway: 'Zumbo Pay'
             }
         ],
         features: [
             'Pagamentos via MercadoPago (PIX, Cartão, Boleto)',
-            'Pagamentos via M-Pesa, E-Mola, mKesh (Débito Pay)',
-            'Pagamentos via Visa/Mastercard (Débito Pay)',
+            'Pagamentos via M-Pesa, E-Mola (Zumbo Pay)',
+            'Pagamentos via Visa/Mastercard (Zumbo Pay)',
             'Webhook para notificações',
             'Consulta de status',
             'Auto-creditação de créditos'
@@ -185,14 +179,13 @@ router.get('/receipt/:payment_id', authenticateApiKey, response.asyncHandler(asy
         const providerLabel = {
             mpesa: 'M-Pesa',
             emola: 'E-Mola',
-            mkesh: 'mKesh',
             visa_mastercard: 'Visa/Mastercard',
             mercadopago: 'MercadoPago'
         };
 
         const info = [
             { label: 'ID da Transação:', value: `#${payment.payment_id}` },
-            { label: 'Referência:', value: payment.debitopay_data?.reference || payment.mercadopago_data?.external_reference || 'N/A' },
+            { label: 'Referência:', value: payment.zumbopay_data?.reference || payment.mercadopago_data?.external_reference || 'N/A' },
             { label: 'Valor Pago:', value: `${payment.currency === 'MZN' ? 'MT' : 'R$'} ${parseFloat(payment.amount).toFixed(2)}` },
             { label: 'Coins Creditados:', value: `${payment.credits_to_add} coins` },
             { label: 'Método:', value: (providerLabel[payment.provider] || payment.provider).toUpperCase() },

@@ -278,56 +278,51 @@ async function expireOldPayments() {
     }
 }
 
-const DEBITOPAY_API_URL = 'https://gyqoaningqhurhvdugne.supabase.co/functions/v1/payment-orchestrator';
-const DEBITOPAY_API_KEY = process.env.DEBITOPAY_API_KEY || 'sk_live_xxx';
+const { ZUMBOPAY_BASE_URL, ZUMBOPAY_API_KEY, ZUMBOPAY_MERCHANT_ID } = require('../services/zumbopayService');
 
-async function checkDebitoPayStatus(paymentId) {
-    const response = await fetch(DEBITOPAY_API_URL, {
-        method: 'POST',
+async function checkZumboPayStatus(paymentId) {
+    const response = await fetch(`${ZUMBOPAY_BASE_URL}/payments/${encodeURIComponent(paymentId)}`, {
+        method: 'GET',
         headers: {
-            'Authorization': `Bearer ${DEBITOPAY_API_KEY}`,
+            'Authorization': `Bearer ${ZUMBOPAY_API_KEY}`,
+            'X-Merchant-Id': ZUMBOPAY_MERCHANT_ID,
             'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            action: 'check-status',
-            payment_id: paymentId
-        })
+        }
     });
     return response.json();
 }
 
-async function processPendingDebitoPayPayments() {
+async function processPendingZumboPayPayments() {
     try {
-        // Pega pagamentos Débito Pay presos há mais de 20s (dá tempo do webhook chegar primeiro)
+        // Pega pagamentos Zumbo Pay presos há mais de 20s (dá tempo do webhook chegar primeiro)
         const pendentes = await Payment.find({
             status: { $nin: ['completed', 'failed', 'refunded', 'chargeback', 'cancelled'] },
             $or: [
-                { provider: { $in: ['mpesa', 'emola', 'mkesh', 'visa_mastercard', 'payout_mpesa', 'payout_emola', 'payout_mkesh'] } },
+                { provider: { $in: ['mpesa', 'emola', 'visa_mastercard', 'payout_mpesa', 'payout_emola'] } },
                 { provider: { $regex: /^mpesa_parceiro_/ } }
             ],
-            'debitopay_data.payment_id': { $exists: true, $ne: null },
+            'zumbopay_data.payment_id': { $exists: true, $ne: null },
             createdAt: { $lte: new Date(Date.now() - 20 * 1000) }
         });
 
-        console.log(`🔄 [DébitoPay Fallback] Verificando ${pendentes.length} pagamentos pendentes...`);
+        console.log(`🔄 [ZumboPay Fallback] Verificando ${pendentes.length} pagamentos pendentes...`);
 
         let credited = 0;
         let failed = 0;
 
         for (const payment of pendentes) {
             try {
-                const result = await checkDebitoPayStatus(payment.debitopay_data.payment_id);
+                const result = await checkZumboPayStatus(payment.zumbopay_data.payment_id);
 
-                if (!result.success) continue;
+                const status = result.data?.status || result.status;
+                if (!status) continue;
 
-                const status = result.payment.status;
                 const isParceiro = payment.provider.startsWith('mpesa_parceiro_');
                 const isPayout = payment.provider.startsWith('payout_');
-                // Só credita coins se origin for 'mozhost' (padrão), NÃO for parceiro e NÃO for payout
                 const isOriginCreditaCoins = !payment.origin || payment.origin === 'mozhost';
                 const creditaCoins = !isParceiro && !isPayout && isOriginCreditaCoins;
 
-                if (status === 'success' && payment.status !== 'completed') {
+                if (status === 'succeeded' && payment.status !== 'completed') {
                     if (creditaCoins) {
                         await fetch(`${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`, {
                             method: 'POST',
@@ -344,33 +339,33 @@ async function processPendingDebitoPayPayments() {
                     }
 
                     payment.status = 'completed';
-                    payment.debitopay_data.reference = result.payment.provider_reference;
-                    payment.debitopay_data.paid_at = new Date();
+                    payment.zumbopay_data.reference = result.data?.reference;
+                    payment.zumbopay_data.paid_at = new Date();
                     await payment.save();
 
                     console.log(
                         creditaCoins
-                            ? `✅ [DébitoPay Fallback] Pagamento ${payment.payment_id} creditado via consulta de status (${payment.credits_to_add} coins, user ${payment.userId}, origin=${payment.origin || 'mozhost'})`
-                            : `✅ [DébitoPay Fallback] Pagamento ${payment.payment_id} confirmado (origin=${payment.origin || 'mozhost'}, provider=${payment.provider}) — sem crédito de coins`
+                            ? `✅ [ZumboPay Fallback] Pagamento ${payment.payment_id} creditado via consulta de status (${payment.credits_to_add} coins, user ${payment.userId}, origin=${payment.origin || 'mozhost'})`
+                            : `✅ [ZumboPay Fallback] Pagamento ${payment.payment_id} confirmado (origin=${payment.origin || 'mozhost'}, provider=${payment.provider}) — sem crédito de coins`
                     );
                     credited++;
 
                 } else if (status === 'failed' || status === 'expired') {
                     payment.status = status;
                     await payment.save();
-                    console.log(`❌ [DébitoPay Fallback] Pagamento ${payment.payment_id} marcado como ${status}`);
+                    console.log(`❌ [ZumboPay Fallback] Pagamento ${payment.payment_id} marcado como ${status}`);
                 }
 
             } catch (err) {
                 failed++;
-                console.error(`❌ [DébitoPay Fallback] Erro ao consultar ${payment.payment_id}:`, err.message);
+                console.error(`❌ [ZumboPay Fallback] Erro ao consultar ${payment.payment_id}:`, err.message);
             }
         }
 
         return { total: pendentes.length, credited, failed };
 
     } catch (error) {
-        console.error('❌ Erro no fallback de pagamentos Débito Pay:', error);
+        console.error('❌ Erro no fallback de pagamentos Zumbo Pay:', error);
         throw error;
     }
 }
@@ -381,6 +376,6 @@ module.exports = {
     processPaySuiteWebhook,
     processPayMozWebhook,
     processPendingPayments,
-    processPendingDebitoPayPayments,
+    processPendingZumboPayPayments,
     expireOldPayments
 };

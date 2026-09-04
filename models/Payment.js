@@ -106,11 +106,14 @@ const paymentSchema = new mongoose.Schema({
     response: mongoose.Schema.Types.Mixed
 },
 
-debitopay_data: {
+zumbopay_data: {
     payment_id: String,
     source_id: String,
     status: String,
     reference: String,
+    provider_reference: String,
+    fee_amount: Number,
+    net_amount: Number,
     paid_at: mongoose.Schema.Types.Mixed
 },
 
@@ -321,7 +324,7 @@ paymentSchema.statics.createPayment = async function(data) {
         user_agent: data.user_agent,
         mercadopago_data: data.mercadopago_data,
         mpesa_data: data.mpesa_data,
-	debitopay_data: data.debitopay_data,
+	zumbopay_data: data.zumbopay_data || data.debitopay_data,
         origin: data.origin || 'mozhost',
         metadata: data.metadata
     });

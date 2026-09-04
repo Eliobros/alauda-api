@@ -1,250 +1,501 @@
-navbar-image
-bashjavascriptphppython
-Search
-PaySuite API Documentation
-Payment Methods
+Toggle Sidebar
+
+PT
+/
+EN
+
+
+HS
+Voltar ao painel
+Documentação da API Zumbo Pay
+API REST sobre HTTPS, JSON em ambos os sentidos. Autenticação por API key (Bearer) emitida no painel. Todas as chamadas devem ser feitas do seu servidor — nunca do navegador.
+
+Abrir painel de programador
+Documentação completa (login)
+WooCommerce
+Plugin WooCommerce
+v1.3.1
+Auto-update
+Aceite M-Pesa, e-Mola e Visa/Mastercard no seu checkout WooCommerce. Tudo começa e termina na sua loja — sem redirect externo em M-Pesa/e-Mola.
+
+Webhook HMAC + 5 camadas
+Recorrência em cartão
+PHP 7.4+ · WP 5.8+ · WC 8+
+Baixar plugin
+Documentação
+Índice
+
+Visão geral
+Autenticação
+Limites & idempotência
+Carteiras (guia wallet_id)
+Validar credenciais
+Cobrança directa (STK)
+Links de pagamento
+Pagamentos split
+Pagamentos recorrentes
+Checkout hospedado
+Payouts
 Webhooks
-Authenticating requests
-Error Handling
-Payment Requests
-Payout Requests
-Refunds
-View Postman collection
-View OpenAPI spec
-Documentation powered by Scribe ✍
-Last updated: February 28, 2026
-PaySuite API Documentation
-PaySuite enables secure payment processing through MPesa, Emola, and Credit/Debit Card Payments, with real-time transaction updates and detailed reports.
+Códigos de erro
+Changelog
+Suporte
+Visão geral
+Datas em ISO 8601 (UTC). Valores monetários na unidade principal (ex.: 1500.50 = 1.500,50 MZN). Toda a resposta — sucesso ou erro — é JSON.
 
-Payment Methods
-Available payment methods for your customers:
+URL base
 
-MPesa
+https://zumbopay.com/api/public/v1
+Copiar
+Métodos disponíveis: cobrança via M-Pesa, eMola e Visa/Mastercard (3DS) através do Checkout Hospedado; payout manual em qualquer método e payout instantâneo M-Pesa (B2C).
 
-Mobile money payments
-Instant processing
-Requires valid MPesa number
-Emola
+Autenticação
+Cada pedido envia um único cabeçalho com a sua API key (prefixo zk_live_ em produção, zk_test_ em teste):
 
-Digital wallet payments
-Instant processing
-Requires valid Emola account
-Credit/Debit Card
+curl https://zumbopay.com/api/public/v1/wallets \
+  -H "Authorization: Bearer zk_live_<SUA_CHAVE>" \
+  -H "X-Merchant-Id: MCH_XXXXXXXXXX"
+Copiar
+Identificadores da sua conta
 
-Processing time: 1-2 business days
-Requires valid card details
-Webhooks
-Get instant notifications for payment events.
+Merchant ID — identifica a sua conta, formato MCH_XXXXXXXXXX. Visível no painel → Programadores.
+API Key — zk_live_… / zk_test_… (autentica os pedidos).
+wallet_id — UUID de cada carteira (M-Pesa, e-Mola, Card). Use o do método em cada cobrança.
+Webhook Secret — valida assinaturas HMAC-SHA256 nos webhooks.
+O cabeçalho X-Merchant-Id é recomendado em todos os pedidos. Se enviado, deve coincidir com a conta da API key — caso contrário devolvemos 403 merchant_id_mismatch. Nunca expomos UUIDs internos: identifique sempre a sua conta pelo Merchant ID (MCH_…).
 
-Setup
-Add your webhook URL in merchant settings
-Save your webhook secret securely
-Use the secret to validate webhooks
-Events
-payment.success
-Sent when payment succeeds.
+Cada chave tem scopes (ex.: wallets:read, payments:write, payouts:write). Crie e revogue em Painel → Programadores.
+
+Limites & idempotência
+Cada API key tem limites por endpoint. As respostas incluem cabeçalhos X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset. Quando excedido devolvemos 429 com Retry-After.
+
+POST /charges — 60/min
+POST /payments — 60/min · GET /payments — 120/min · GET /payments/:ref — 240/min
+POST /payouts — 30/min
+GET /wallets — 120/min
+Para garantir que reentregas não duplicam cobranças, envie source_id (em /charges) ou o cabeçalho Idempotency-Key. Repetir o mesmo identificador devolve a transacção original com "duplicate": true.
+
+Cobrança directa (STK push)
+⚠️ Dois fluxos distintos — escolha o correcto
+
+POST /charges — STK push directo. O cliente recebe o popup do PIN no telemóvel. Sem redirecionamento. Apenas M-Pesa (84/85) e e-Mola (86/87). NÃO suporta cartão.
+POST /payments — Checkout hospedado. Devolve checkout_url para onde redireciona o cliente. Suporta M-Pesa, e-Mola E Visa/Mastercard (3DS em iframe).
+Para cartão Visa/Mastercard o PIN/3DS exige o iframe MPGS — use sempre /payments. Para PIN do telemóvel sem sair do seu site, use /charges.
+
+Dispara um pedido STK directo no telemóvel do cliente. M-Pesa (84/85) ou e-Mola (86/87) — o canal é inferido pelo prefixo do número. Scope: payments:write
+
+wallet_id é OBRIGATÓRIO em /charges (C2B) — identifica a carteira do método escolhido (M-Pesa ou e-Mola) onde o valor será creditado. Sem wallet_id o pedido é rejeitado com 400.
+
+POST https://zumbopay.com/api/public/v1/charges
+Authorization: Bearer zk_live_<SUA_CHAVE>
+X-Merchant-Id: MCH_XXXXXXXXXX
+Content-Type: application/json
 
 {
-  "event": "payment.success",
-  "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "amount": 100.50,
-    "reference": "INV2024001",
-    "transaction": {
-      "id": "tr_123456",
+  "wallet_id": "<wallet_id>",       // OBRIGATÓRIO
+  "amount": 250,
+  "msisdn": "258841234567",         // 84/85 → M-Pesa · 86/87 → e-Mola
+  "customer_name": "Maria",
+  "source_id": "fatura-2026-0042"   // idempotência
+}
+
+→ 200  (sucesso síncrono)
+{ "data": { "channel": "mpesa", "status": "success",
+  "code": "INS-0", "reference": "ZUMBO5K1A2Z9X" } }
+
+→ 202  (a aguardar PIN do cliente)
+{ "data": { "status": "pending", "reference": "ZUMBO..." } }
+
+→ 402  (recusado pelo PSP)
+{ "error": { "code": "psp_declined", "message": "..." } }
+Copiar
+Exemplo cURL completo (STK M-Pesa):
+
+curl -X POST https://zumbopay.com/api/public/v1/charges \
+  -H "Authorization: Bearer zk_live_<SUA_CHAVE>" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: fatura-2026-0042" \
+  -d '{
+    "wallet_id": "<wallet_id_mpesa>",
+    "amount": 250,
+    "msisdn": "258841234567",
+    "customer_name": "Maria",
+    "source_id": "fatura-2026-0042"
+  }'
+Copiar
+Exemplo cURL — Checkout hospedado (cartão + telemóvel):
+
+curl -X POST https://zumbopay.com/api/public/v1/payments \
+  -H "Authorization: Bearer zk_live_<SUA_CHAVE>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Fatura #0042",
+    "amount": 250,
+    "currency": "MZN",
+    "channels": ["mpesa","emola","card"],
+    "wallet_id": "<wallet_id_destino>"
+  }'
+
+# → 201 { "data": { "checkout_url": "https://zumbopay.com/pay/zp-...." } }
+# Redirecione o cliente para checkout_url.
+Copiar
+Para cartão Visa/Mastercard NÃO use /charges — use /payments (hosted checkout) que devolve checkout_url com formulário MPGS + 3DS embutido.
+
+Carteiras
+Listar carteiras do comerciante autenticado, com saldo, código (6 dígitos), método e moeda. Scope: wallets:read
+
+GET https://zumbopay.com/api/public/v1/wallets
+Authorization: Bearer zk_live_<SUA_CHAVE>
+X-Merchant-Id: MCH_XXXXXXXXXX
+
+→ 200
+{
+  "data": [
+    {
+      "id": "<wallet_id>",
+      "wallet_code": "123456",
+      "name": "Loja principal",
       "method": "mpesa",
-      "paid_at": "2024-02-10T10:15:00.000000Z"
+      "currency": "MZN",
+      "balance": 12450.00,
+      "is_active": true,
+      "created_at": "2026-06-22T10:00:00.000Z"
     }
-  },
-  "created_at": 1708235285,
-  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+  ]
 }
-payment.failed
-Sent when payment fails.
+Copiar
+Passo a passo — configurar wallet_id por método
 
+No painel → Carteiras, certifique-se de que tem uma carteira activa para cada método que pretende aceitar (M-Pesa, e-Mola e/ou Visa/Mastercard).
+Chame GET /wallets uma vez e guarde o id (UUID) de cada carteira numa variável do seu sistema: WALLET_MPESA, WALLET_EMOLA, WALLET_CARD.
+Em cada chamada de cobrança, envie o wallet_id do método correspondente. Sem ele o pedido é rejeitado com 400 missing_wallet_id.
+Confirme tudo de uma vez com GET /merchant/validate (ver secção seguinte).
+Exemplo — STK M-Pesa com wallet_id correcto
+
+curl -X POST https://zumbopay.com/api/public/v1/charges \
+  -H "Authorization: Bearer zk_live_<SUA_CHAVE>" \
+  -H "X-Merchant-Id: MCH_XXXXXXXXXX" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wallet_id": "$WALLET_MPESA",
+    "amount": 50,
+    "msisdn": "258841234567",
+    "source_id": "ord-2026-0001"
+  }'
+Copiar
+Exemplo — STK e-Mola (prefixo 86/87)
+
+curl -X POST https://zumbopay.com/api/public/v1/charges \
+  -H "Authorization: Bearer zk_live_<SUA_CHAVE>" \
+  -H "X-Merchant-Id: MCH_XXXXXXXXXX" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wallet_id": "$WALLET_EMOLA",
+    "amount": 50,
+    "msisdn": "258861234567",
+    "source_id": "ord-2026-0002"
+  }'
+Copiar
+Exemplo — Checkout hospedado (Visa/Mastercard + 3DS)
+
+curl -X POST https://zumbopay.com/api/public/v1/payments \
+  -H "Authorization: Bearer zk_live_<SUA_CHAVE>" \
+  -H "X-Merchant-Id: MCH_XXXXXXXXXX" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Fatura #0042",
+    "amount": 250,
+    "currency": "MZN",
+    "channels": ["card"],
+    "wallet_id": "$WALLET_CARD"
+  }'
+Copiar
+Validar credenciais
+Endpoint de diagnóstico — chame antes de ir para produção para confirmar que tudo está pronto: Merchant ID, API Key, scopes, webhook activo e uma carteira por método.
+
+GET https://zumbopay.com/api/public/v1/merchant/validate
+Authorization: Bearer zk_live_<SUA_CHAVE>
+X-Merchant-Id: MCH_XXXXXXXXXX
+
+→ 200
 {
-  "event": "payment.failed",
   "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "amount": 100.50,
-    "reference": "INV2024001",
-    "error": "Insufficient funds"
-  },
-  "created_at": 1708235285,
-  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+    "ready": true,
+    "missing": [],
+    "merchant": {
+      "merchant_id": "MCH_XXXXXXXXXX",
+      "environment": "live",
+      "api_key": { "id": "...", "scopes": ["payments:write","wallets:read"], "environment": "live" },
+      "contact_phone_configured": true
+    },
+    "wallets": {
+      "mpesa": [{ "wallet_id": "<uuid>", "wallet_code": "553009", "name": "Loja", "currency": "MZN", "balance": 1240.5 }],
+      "emola": [...],
+      "card":  [...]
+    },
+    "webhook": {
+      "id": "<uuid>",
+      "url": "https://meu-site.com/webhooks/zumbo",
+      "events": ["payment.succeeded","payment.failed"],
+      "secret": "whsec_...",
+      "is_active": true
+    },
+    "base_url": "https://zumbopay.com/api/public/v1"
+  }
 }
-Security
-Verify webhook authenticity:
+Copiar
+Quando ready=false, o array missing lista exactamente o que falta: merchant_id, wallet_mpesa, wallet_emola, wallet_card, webhook, contact_phone.
 
-<?php
-$payload = file_get_contents('php://input');
-$signature = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'];
-$secret = 'your_webhook_secret';
+Links de pagamento
+Crie um pedido de pagamento. A resposta inclui um checkout_url pronto para partilhar com o cliente. Scope: payments:write
 
-$calculatedSignature = hash_hmac('sha256', $payload, $secret);
-
-if (hash_equals($signature, $calculatedSignature)) {
-    $data = json_decode($payload, true);
-    // Process the event
-}
-Headers
-Header	Description
-X-Webhook-Signature	Request signature
-X-Account-Id	Your merchant account ID
-Content-Type	application/json
-User-Agent	PaySuite-Webhook/1.0
-Best Practices
-Always verify signatures
-Process events once (check request_id)
-Respond within 5 seconds
-Implement retry handling
-Log events for debugging
-Test in sandbox before going live
-Authenticating requests
-Include your API token in all requests:
-
-curl -X POST "https://paysuite.tech/api/v1/payments" \
-  -H "Authorization: Bearer your_token_here" \
-  -H "Content-Type: application/json"
-Get your API token from the merchant dashboard under Settings > API Access.
-
-Error Handling
-All API responses use this format:
+POST https://zumbopay.com/api/public/v1/payments
+Authorization: Bearer zk_live_<SUA_CHAVE>
+X-Merchant-Id: MCH_XXXXXXXXXX
+Content-Type: application/json
 
 {
-  "status": "error",
-  "message": "Invalid input"
+  "title": "Curso de Excel",
+  "amount": 1500,
+  "currency": "MZN",
+  "channels": ["mpesa", "emola", "card"],
+  "wallet_id": "<wallet_id_obrigatório>",
+  "description": "Inscrição turma de Julho",
+  "max_uses": 1,
+  "expires_at": "2026-12-31T23:59:59Z"
 }
-Common error codes:
 
-400: Invalid request data
-401: Invalid API token
-402: Payment failed
-404: Resource not found
-422: Validation error
-429: Too many requests (rate limit exceeded)
-Rate limits:
+→ 201
+{
+  "data": {
+    "id": "<wallet_id_gerado>",
+    "reference": "ZP_AB12CD34",
+    "slug": "curso-excel",
+    "title": "Curso de Excel",
+    "amount": 1500,
+    "currency": "MZN",
+    "status": "active",
+    "checkout_url": "https://zumbopay.com/pay/curso-excel"
+  }
+}
+Copiar
+channels: mpesa, emola, mkesh, card. wallet_id é obrigatório — identifica a carteira do método principal onde o valor cai. Para canais adicionais, a carteira é resolvida automaticamente entre as suas carteiras activas do método correspondente.
 
-100 requests per minute per merchant
-Webhook retries: 5 attempts with exponential backoff
-Payment Requests
-APIs for managing payment requests
+Listar / consultar:
 
-Create Payment Request
-requires authentication
+GET https://zumbopay.com/api/public/v1/payments?limit=50&status=active
+GET https://zumbopay.com/api/public/v1/payments/<reference-ou-slug>
+Authorization: Bearer zk_live_<SUA_CHAVE>
+Copiar
+Pagamentos split (multi-beneficiário)
+Distribui automaticamente cada pagamento por várias carteiras. As percentagens devem somar 100; partes fixas usam o valor absoluto em MZN.
 
-Creates a new payment request in the system.
-
-Example request:
-Example response (201):
-
+POST https://zumbopay.com/api/public/v1/payments
+Authorization: Bearer zk_live_<SUA_CHAVE>
+X-Merchant-Id: MCH_XXXXXXXXXX
+Content-Type: application/json
 
 {
+  "type": "split",
+  "title": "Aula em parceria",
+  "amount": 1000,
+  "currency": "MZN",
+  "channels": ["mpesa", "emola", "card"],
+  "wallet_id": "<wallet_id_principal>",
+  "splits": [
+    { "recipient_wallet_id": "<wallet_id_A>", "share_type": "percent", "share_value": 70 },
+    { "recipient_wallet_id": "<wallet_id_B>", "share_type": "percent", "share_value": 30 }
+  ]
+}
+
+→ 201 { "data": { "id": "<id>", "reference": "ZP-SPL-...",
+  "checkout_url": "https://zumbopay.com/pay/zp-spl-..." } }
+Copiar
+Máx. 20 beneficiários por link. A comissão de 8% é aplicada antes do split.
+
+Pagamentos recorrentes
+Cria uma subscrição cobrada automaticamente pelo runner diário (03:05 UTC). Para cartões usa o token guardado após a primeira autorização 3DS; para M-Pesa/e-Mola dispara STK no número fornecido.
+
+POST https://zumbopay.com/api/public/v1/payments
+Authorization: Bearer zk_live_<SUA_CHAVE>
+X-Merchant-Id: MCH_XXXXXXXXXX
+Content-Type: application/json
+
+{
+  "type": "recurring",
+  "title": "Assinatura Premium",
+  "amount": 499,
+  "currency": "MZN",
+  "channels": ["card"],
+  "recurring": {
+    "channel": "card",                       // card | mpesa | emola
+    "interval": "monthly",                   // daily|weekly|monthly|quarterly|semiannual|yearly
+    "max_charges": 12,                       // opcional — nº máximo de ciclos
+    "start_at": "2026-07-01T00:00:00Z",      // opcional — 1ª cobrança
+    "end_at":   "2027-07-01T00:00:00Z",      // opcional — data limite do mandato
+    "customer_name":  "Cliente Premium",
+    "customer_email": "cliente@exemplo.mz",  // alertas de cobrança
+    "customer_msisdn":"258841234567",
+    "consent_accepted": true                 // true = activa de imediato (integração API com consentimento auditável do lado do integrador)
+  }
+}
+
+→ 201 {
+  "data": {
+    "subscription_id": "<uuid>",
+    "status": "active",                       // "pending" se consent_accepted=false
+    "checkout_url": "https://zumbopay.com/pay/zp-rec-..."
+  }
+}
+Copiar
+Se omitir consent_accepted, a subscrição fica pending até o cliente abrir o checkout, preencher nome/email/contacto e aceitar o mandato explicitamente. Cada cobrança bem-sucedida dispara subscription.charged. Após 3 falhas seguidas → paused. Cancele a qualquer momento via DELETE /api/public/v1/subscriptions/<id> ou no painel; o evento subscription.cancelled é emitido.
+
+Checkout hospedado (whitelabel)
+Redireccione o cliente para o URL devolvido em checkout_url:
+
+https://zumbopay.com/pay/<reference-ou-slug>
+Copiar
+O cliente escolhe M-Pesa, eMola ou cartão (Visa/Mastercard com 3-D Secure 2). A carteira é creditada com o valor líquido (8% de comissão da plataforma). Comissão e estado são publicados via webhook em tempo real.
+
+Payouts
+Saque a partir de uma carteira. Os fundos entram sempre na conta master da Zumbo Pay; a redistribuição depende do método e do modo (auto B2C ou manual). Scope: payouts:write
+
+e-Mola — herda das configurações da carteira
+
+Activar B2C automático e número de destino em Painel → Carteiras → e-Mola.
+Auto B2C ON: 100% entra no master, 86% enviado por B2C automático para o número da carteira. 14% (8% plataforma + 6% B2C) retidos. Carteira não acumula saldo.
+Auto B2C OFF: 92% creditado na carteira (8% plataforma retida). Saque manual mín. 500 MT, custo 20 MT por cada 500 MT (4%).
+Payout instantâneo M-Pesa B2C: mín. 1 MT, taxa 6%.
+Mudança do número de payout requer OTP por SMS no número antigo (anti-fraude).
+M-Pesa — payout instantâneo B2C
+
+Taxa 6% sobre o valor líquido. Sujeito ao switch global em Admin → Integrações.
+
+Exemplo 1 — Saque manual (qualquer método)
+
+Mínimo 500 MT. Taxa 20 MT por cada 500 MT solicitados (≈ 4%). O payout fica em status 'pending' até aprovação do admin; fee_amount e net_amount já vêm calculados na resposta.
+
+curl -X POST https://zumbopay.com/api/public/v1/payouts \
+  -H "Authorization: Bearer zk_live_<SUA_CHAVE>" \
+  -H "X-Merchant-Id: MCH_XXXXXXXXXX" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wallet_id": "<wallet_id_emola>",
+    "amount": 1500,
+    "method": "emola",
+    "destination": "861234567",
+    "notes": "Saque semanal"
+  }'
+
+→ 201
+{
+  "data": {
+    "id": "<payout_id>",
+    "amount": 1500,
+    "fee_amount": 60,
+    "net_amount": 1440,
+    "currency": "MZN",
+    "status": "pending",
+    "method": "emola",
+    "destination": "861234567",
+    "requested_at": "2026-06-30T10:00:00.000Z",
+    "completes_at": null,
+    "auto_dispatched": false
+  }
+}
+Copiar
+Exemplo 2 — Payout instantâneo M-Pesa B2C
+
+Exclusivo M-Pesa. Mínimo 1 MT, taxa 6% sobre o líquido. Envia auto_dispatch=true; o B2C é disparado em tempo real e a resposta já vem com status='success' e provider_reference da operadora.
+
+curl -X POST https://zumbopay.com/api/public/v1/payouts \
+  -H "Authorization: Bearer zk_live_<SUA_CHAVE>" \
+  -H "X-Merchant-Id: MCH_XXXXXXXXXX" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wallet_id": "<wallet_id_mpesa>",
+    "amount": 250,
+    "method": "mpesa",
+    "destination": "841234567",
+    "auto_dispatch": true
+  }'
+
+→ 201
+{
+  "data": {
+    "id": "<payout_id>",
     "status": "success",
-    "data": {
-        "id": "550e8400-e29b-41d4-a716-446655440000",
-        "amount": 100.5,
-        "reference": "INV2024001",
-        "status": "pending",
-        "checkout_url": "https://paysuite.test/checkout/550e8400-e29b-41d4-a716-446655440000"
-    }
+    "method": "mpesa",
+    "destination": "258841234567",
+    "amount": 250,
+    "fee_amount": 10,
+    "net_amount": 240,
+    "currency": "MZN",
+    "reference": "ZP<id16>",
+    "provider_reference": "AG_...",
+    "auto_dispatched": true
+  }
 }
- 
-Example response (422):
+Copiar
+Pré-requisitos: KYC aprovado e saldo suficiente. Erros típicos: insufficient_funds, wallet_not_found, manual_min_amount (abaixo de 500 MT), auto_dispatch_unsupported (auto_dispatch só funciona com method=mpesa), b2c_failed (operadora rejeitou o B2C).
 
+Webhooks
+Configure URL e eventos em Painel → Programadores. Cada entrega inclui o cabeçalho x-zumbopay-signature com o HMAC-SHA256 do corpo bruto assinado com o seu webhook secret.
+
+// Node.js — verificar assinatura
+import crypto from "crypto";
+
+function verify(rawBody, signature, secret) {
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex");
+  return crypto.timingSafeEqual(
+    Buffer.from(signature, "hex"),
+    Buffer.from(expected, "hex"),
+  );
+}
+Copiar
+Eventos suportados: payment.succeeded, payment.failed, payment.refunded, payout.completed, payout.failed, kyc.status_changed, subscription.created, subscription.mandate_accepted, subscription.activated, subscription.charged, subscription.paused, subscription.resumed, subscription.cancelled, subscription.ended, subscription.failed.
+
+Endpoint de callback M-Pesa (lado Zumbo Pay)
+
+POST https://zumbopay.com/api/public/mpesa-callback
+Copiar
+Configurado nas nossas chaves Vodacom. O comerciante não precisa de o registar.
+
+Códigos de erro
+Formato uniforme:
 
 {
-    "status": "error",
-    "message": "Invalid input"
+  "error": {
+    "code": "invalid_input",
+    "message": "wallet_id é obrigatório"
+  }
 }
- 
-Request    Try it out ⚡   
-POST api/v1/payments
+Copiar
+400 — invalid_json, invalid_input, insufficient_funds
+401 — invalid_api_key, revoked_api_key, expired_api_key
+403 — insufficient_scope
+404 — not_found, wallet_not_found
+429 — limite de taxa excedido
+5xx — erro interno; repetir com backoff exponencial
+Changelog
+2026-06-24
 
-Headers
-Authorization        
-Example: Bearer {YOUR_AUTH_KEY}
+POST /v1/payments (type=recurring): novos campos end_at, consent_accepted, customer_name, customer_email, customer_msisdn.
+Novos eventos de webhook: subscription.mandate_accepted, subscription.activated, subscription.ended.
+DELETE /v1/subscriptions/<id> — cancelamento programático com emissão de subscription.cancelled.
+2026-06-22
 
-Content-Type        
-Example: application/json
+Referências passam a usar prefixo ZP… (sanitizadas; evita rejeição INS-19 do M-Pesa).
+/v1/charges + /v1/payments: CORS preflight (OPTIONS) suportado.
+Job de reconciliação /api/public/hooks/reconcile-api-pending corre a cada 2 minutos.
+wallet_id continua obrigatório em /charges (UUID) e /payments (UUID ou wallet_code de 6 dígitos). Canais adicionais em /payments resolvem automaticamente a carteira do método correspondente.
+Suporte
+Escreva-nos para suporte@zumbopay.com e respondemos em 24h úteis.
 
-Accept        
-Example: application/json
+Merchant ID: MCH_781A39CD6E
 
-Body Parameters
-amount   numeric     
-Payment amount in MZN. Example: 100.50
-
-method   string  optional    
-optional Payment method.
-
-Must be one of:
-credit_card
-mpesa
-emola
-reference   string     
-Unique payment reference (max: 50 characters). Example: INV2024001
-
-description   string  optional    
-optional Payment description (max: 255 characters). Example: Payment for invoice INV2024001
-
-return_url   string  optional    
-optional URL to redirect after payment completion. Example: https://example.com/success
-
-callback_url   string  optional    
-Must be a valid URL. Must not be greater than 255 characters. Example: http://ferry.com/corporis-excepturi-iusto-ipsam-in-eveniet-magnam
-
-Get Payment Request
-requires authentication
-
-Returns the details of a specific payment request.
-
-Example request:
-Example response (200):
-
-
-{
-    "status": "success",
-    "data": {
-        "id": "550e8400-e29b-41d4-a716-446655440000",
-        "amount": 100.5,
-        "reference": "INV2024001",
-        "status": "paid",
-        "transaction": {
-            "id": 1,
-            "status": "completed",
-            "transaction_id": "MPESA123456",
-            "paid_at": "2024-02-10T10:15:00.000000Z"
-        }
-    }
-}
- 
-Example response (404):
-
-
-{
-    "status": "error",
-    "message": "Payment request not found."
-}
- 
-Request    Try it out ⚡   
-GET api/v1/payments/{id}
-
-Headers
-Authorization        
-Example: Bearer {YOUR_AUTH_KEY}
-
-Content-Type        
-Example: application/json
-
-Accept        
-Example: application/json
-
-URL Parameters
-id   string     
-The ID of the payment. Example: veniam
-
-uuid   string     
-UUID of the payment request. Example: 550e8400-e29b-41d4-a716-446655440000
-
-Payout Requests
+© 2026 Todos os direitos reservados
+Nethost
