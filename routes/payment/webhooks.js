@@ -112,7 +112,7 @@ router.post(
             // para lowercase.
 
             const rawSignature =
-                req.headers['x-zumbo-signature'] || '';
+                req.headers['x-zumbopay-signature'] || '';
 
             const signature =
                 String(rawSignature).trim();

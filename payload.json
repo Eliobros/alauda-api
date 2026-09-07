@@ -1,0 +1,1 @@
+{"id":"evt_pm891wkewr","type":"payment.succeeded","created_at":"2026-09-03T21:17:36.093Z","merchant_id":"MCH_781A39CD6E","data":{"payment_id":"pay_x4441uq8","reference":"ZP_DW3P2AW6","amount":250,"currency":"MZN","channel":"mpesa","status":"succeeded"}}
