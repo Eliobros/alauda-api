@@ -8,7 +8,7 @@ const authenticateApiKey = require('../../middleware/auth');
 const response = require('../../utils/responseHandler');
 const Payment = require('../../models/Payment');
 const paymentProcessor = require('../../utils/paymentProcessor');
-const { processZumboPayPayment } = require('../../services/zumbopayService');
+const { processZumboPayPayment, ZUMBOPAY_BASE_URL, ZUMBOPAY_API_KEY, ZUMBOPAY_MERCHANT_ID } = require('../../services/zumbopayService');
 
 // ===== FÁBRICA DE ROTAS MOBILE MONEY =====
 // mpesa e emola seguem o mesmo fluxo — mudam apenas o regex do telefone,
@@ -214,18 +214,68 @@ router.post('/visa_mastercard', authenticateApiKey, response.asyncHandler(async 
 }));
 
 // ===== CONSULTA DE STATUS ZUMBO PAY =====
+// Se o pagamento está pendente localmente, consulta a ZumboPay ao vivo
+// (GET /payments/:reference) para não depender só do webhook — que pode
+// se perder. Se confirmou, atualiza o registro local.
 
 router.get('/zumbopay/status/:payment_id', authenticateApiKey, response.asyncHandler(async (req, res) => {
     try {
         const { payment_id } = req.params;
 
         const payment = await Payment.findOne({
-            'zumbopay_data.payment_id': payment_id
+            $or: [
+                { 'zumbopay_data.payment_id': payment_id },
+                { 'zumbopay_data.reference': payment_id },
+                { payment_id }
+            ]
         });
 
         if (!payment) {
             console.warn(`⚠️ Pagamento não encontrado para payment_id: ${payment_id}`);
             return response.error(res, 'Pagamento não encontrado', 404);
+        }
+
+        // Pendente? Pergunta à ZumboPay diretamente.
+        if (['pending', 'in_process'].includes(payment.status) && payment.zumbopay_data?.reference) {
+            try {
+                const liveRes = await fetch(
+                    `${ZUMBOPAY_BASE_URL}/payments/${payment.zumbopay_data.reference}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${ZUMBOPAY_API_KEY}`,
+                            'X-Merchant-Id': ZUMBOPAY_MERCHANT_ID
+                        },
+                        signal: AbortSignal.timeout(8000)
+                    }
+                );
+
+                const liveData = await liveRes.json();
+                const liveStatus = liveData.data?.status;
+
+                if (liveRes.ok && liveStatus) {
+                    const statusMap = {
+                        succeeded: 'completed',
+                        completed: 'completed',
+                        failed: 'failed',
+                        cancelled: 'cancelled',
+                        refunded: 'refunded',
+                        expired: 'expired',
+                        pending: 'pending',
+                        active: 'pending'
+                    };
+                    const mapped = statusMap[liveStatus] || null;
+
+                    if (mapped && mapped !== payment.status) {
+                        payment.status = mapped;
+                        await payment.save();
+                        console.log(`🔄 Status ${payment_id} sincronizado com ZumboPay: ${mapped}`);
+                    }
+                }
+            } catch (syncError) {
+                // ZumboPay indisponível — mantém o status local.
+                console.warn('⚠️ Não foi possível sincronizar status com ZumboPay:', syncError.message);
+            }
         }
 
         await req.logSuccess({ case: 'zumbopay_status_checked', payment_id, status: payment.status });

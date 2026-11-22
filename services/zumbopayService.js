@@ -97,10 +97,16 @@ async function processZumboPayCharge(metodo, data) {
 
     const sourceId = `alauda_${data.usuario_id}_${Date.now()}`;
 
+    // A doc Zumbo Pay exige msisdn internacional: 258841234567.
+    // O MozHost envia o número local (841234567) — normalizamos aqui,
+    // igual ao que o payout já faz.
+    const localPhone = String(data.numero_celular || '').replace(/\D/g, '').replace(/^258/, '');
+    const msisdn = `258${localPhone}`;
+
     const payload = {
         wallet_id: wallet.wallet_id,
         amount: parseFloat(data.valor),
-        msisdn: data.numero_celular,
+        msisdn,
         customer_name: data.customer_name || undefined,
         source_id: sourceId
     };
@@ -108,7 +114,7 @@ async function processZumboPayCharge(metodo, data) {
     console.log(`📤 Enviando charge Zumbo Pay (${wallet.name}):`, {
         ...payload,
         wallet_id: '***',
-        msisdn: data.numero_celular ? `${data.numero_celular.slice(0, 6)}***` : undefined
+        msisdn: msisdn ? `${msisdn.slice(0, 6)}***` : undefined
     });
 
     const fetchResponse = await fetch(`${ZUMBOPAY_BASE_URL}/charges`, {
@@ -126,7 +132,7 @@ async function processZumboPayCharge(metodo, data) {
             success: true,
             metodo: wallet.name,
             valor: data.valor,
-            numero_celular: data.numero_celular,
+            numero_celular: msisdn,
             usuario_id: data.usuario_id,
             payment_id: responseData.data?.reference || sourceId,
             reference: responseData.data?.reference,

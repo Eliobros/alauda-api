@@ -187,7 +187,6 @@ router.get('/receipt/:payment_id', authenticateApiKey, response.asyncHandler(asy
             { label: 'ID da Transação:', value: `#${payment.payment_id}` },
             { label: 'Referência:', value: payment.zumbopay_data?.reference || payment.mercadopago_data?.external_reference || 'N/A' },
             { label: 'Valor Pago:', value: `${payment.currency === 'MZN' ? 'MT' : 'R$'} ${parseFloat(payment.amount).toFixed(2)}` },
-            { label: 'Coins Creditados:', value: `${payment.credits_to_add} coins` },
             { label: 'Método:', value: (providerLabel[payment.provider] || payment.provider).toUpperCase() },
             { label: 'Data:', value: new Date(payment.created_at).toLocaleString('pt-BR') },
             { label: 'Status:', value: 'Confirmado' }
@@ -217,10 +216,10 @@ router.get('/receipt/:payment_id', authenticateApiKey, response.asyncHandler(asy
         doc
             .fontSize(10)
             .fillColor('#374151')
-            .text('Créditos:', 60, boxY + 15)
+            .text('Pagamento confirmado:', 60, boxY + 15)
             .fontSize(12)
             .fillColor('#1e40af')
-            .text('Coins não expiram e podem ser usados a qualquer momento', 60, boxY + 32);
+            .text('O valor pago é válido para o ciclo de assinatura correspondente', 60, boxY + 32);
 
         // === RODAPÉ ===
         doc

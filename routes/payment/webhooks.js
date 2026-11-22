@@ -382,6 +382,18 @@ router.post(
 
                 if (creditaCoins) {
 
+                    // O modelo de coins foi descontinuado no MozHost (agora é por
+                    // plano/assinatura via /api/billing). A rota internal/credit-coins
+                    // responde 410 Gone, e o throw antigo fazia o webhook falhar
+                    // ANTES de marcar o pagamento como completed — deixando
+                    // pagamentos presos em pending para sempre.
+                    //
+                    // Agora: apenas registamos o pagamento como completed. A
+                    // liberação do recurso é feita pelo ciclo de billing do MozHost,
+                    // que consulta o status deste pagamento.
+
+                    let creditStatus = null;
+
                     try {
 
                         const creditResponse =
@@ -411,38 +423,33 @@ router.post(
                                 }
                             );
 
+                        creditStatus = creditResponse.status;
 
-                        if (!creditResponse.ok) {
+                        if (creditResponse.ok) {
 
-                            const errorText =
-                                await creditResponse.text();
-
-                            console.error(
-                                '❌ Erro ao creditar coins:',
-                                errorText
+                            console.log(
+                                `🪙 ${payment.credits_to_add} coins creditadas para ${payment.userId}`
                             );
 
-                            throw new Error(
-                                'Falha ao creditar coins'
+                        } else {
+
+                            // 410 = rota descontinuada (coins removidos) — esperado.
+                            // Outros erros também NÃO devem impedir o pagamento de
+                            // ser confirmado; o billing do MozHost resolve o resto.
+                            console.warn(
+                                `ℹ️ credit-coins respondeu ${creditStatus} para ${payment.userId} ` +
+                                `(coins descontinuados = 410, esperado). Seguindo para completed.`
                             );
                         }
 
-
-                        console.log(
-                            `🪙 ${payment.credits_to_add} coins creditadas para ${payment.userId}`
-                        );
-
                     } catch (creditError) {
 
-                        console.error(
-                            '❌ Erro no crédito de coins:',
-                            creditError
+                        // Rede caiu, MozHost offline etc. — nunca bloquear a
+                        // confirmação do pagamento por causa do crédito antigo.
+                        console.warn(
+                            '⚠️ Não foi possível chamar credit-coins (ignorado):',
+                            creditError.message
                         );
-
-                        // Não marcar como completed se o
-                        // crédito falhou.
-
-                        throw creditError;
                     }
 
                 } else {
@@ -570,41 +577,58 @@ router.post(
                     creditaCoins
                 ) {
 
-                    const refundResponse =
-                        await fetch(
-                            `${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`,
-                            {
-                                method: 'POST',
+                    // Coins descontinuados no MozHost (rota devolve 410). O
+                    // reembolso não pode falhar por causa disso — apenas marca
+                    // o pagamento como refunded.
+                    try {
 
-                                headers: {
-                                    'x-internal-key':
-                                        process.env.INTERNAL_SECRET_KEY,
+                        const refundResponse =
+                            await fetch(
+                                `${process.env.MOZHOST_API_URL}/api/payment/internal/credit-coins`,
+                                {
+                                    method: 'POST',
 
-                                    'Content-Type':
-                                        'application/json'
-                                },
+                                    headers: {
+                                        'x-internal-key':
+                                            process.env.INTERNAL_SECRET_KEY,
 
-                                body: JSON.stringify({
-                                    userId:
-                                        payment.userId,
+                                        'Content-Type':
+                                            'application/json'
+                                    },
 
-                                    coins:
-                                        -payment.credits_to_add,
+                                    body: JSON.stringify({
+                                        userId:
+                                            payment.userId,
 
-                                    externalPaymentId:
-                                        payment.payment_id
-                                })
-                            }
-                        );
+                                        coins:
+                                            -payment.credits_to_add,
 
+                                        externalPaymentId:
+                                            payment.payment_id
+                                    })
+                                }
+                            );
 
-                    if (!refundResponse.ok) {
+                        if (refundResponse.ok) {
 
-                        throw new Error(
-                            'Falha ao remover coins do reembolso'
+                            console.log(
+                                `↩️ Coins do reembolso removidos: ${paymentId}`
+                            );
+
+                        } else {
+
+                            console.warn(
+                                `ℹ️ credit-coins (refund) respondeu ${refundResponse.status} — ignorado (coins descontinuados).`
+                            );
+                        }
+
+                    } catch (refundError) {
+
+                        console.warn(
+                            '⚠️ Falha ao remover coins do reembolso (ignorado):',
+                            refundError.message
                         );
                     }
-
 
                     payment.status =
                         'refunded';
